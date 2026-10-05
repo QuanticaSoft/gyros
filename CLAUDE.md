@@ -8,7 +8,7 @@ Gyros es un sistema de gestión de préstamos (QuanticaSoft, Bolivia) que cobra 
 
 ## Repositorio y despliegue
 
-Monorepo en `https://github.com/QuanticaSoft/gyros.git`. **`main` es lo que va a producción.** El tag `inicio-2026-10-05` marca el punto de partida del repo unificado. Cada subcarpeta se despliega en un host distinto:
+Monorepo en `https://github.com/QuanticaSoft/gyros.git`, única fuente de verdad del proyecto. El tag `inicio-2026-10-05` marca el punto de partida del repo unificado (los repos anteriores `gyrosfe`, `opt` y `scz1` solo conservan historial). Cada subcarpeta se despliega en un host distinto:
 
 | Carpeta | Qué es | Host (SSH) | Ruta en el host | Puerto del túnel |
 |---|---|---|---|---|
@@ -18,13 +18,28 @@ Monorepo en `https://github.com/QuanticaSoft/gyros.git`. **`main` es lo que va a
 
 La web se usa en `https://www.quanticasoft.com/gyrosfe/ui/login.php`. El puerto del túnel es el puerto remoto en flamenco (`TUNNEL_REMOTE_PORT` en el `.env` del agente, `Agent.tunnelPort` en la DB); en el propio agente Flask siempre escucha en `:8080`.
 
-`cbb01/` y `scz01/` contienen **el mismo código y deben quedar byte a byte idénticos** (`diff -rq cbb01 scz01` no debe reportar nada). Todo cambio en el agente se aplica en ambas carpetas. Lo que difiere por host vive fuera del código: el `.env` (ignorado por git) y la línea `User=` de `gyros-tunnel.service` / `gyros-union-server.service`.
+`cbb01/` y `scz01/` contienen **el mismo código y deben quedar byte a byte idénticos** (`diff -rq -x .DS_Store cbb01 scz01` no debe reportar nada). Todo cambio en el agente se aplica en ambas carpetas. Lo que difiere por host vive fuera del código: el `.env` (ignorado por git) y la línea `User=` de `gyros-tunnel.service` / `gyros-union-server.service`.
 
-`<agente>/memory.md` es la bitácora operativa compartida entre hosts (hallazgos, decisiones, pendientes, notas de conexión, checklist de salud). **Leerla antes de tocar el agente o su despliegue** y actualizarla tras cada hallazgo relevante. Esa bitácora menciona un `CLAUDE.md` propio del agente con la tabla de hosts y de variables `.env`; no está incluido en esta copia.
+La bitácora operativa histórica del agente (hallazgos del túnel, unidades systemd duplicadas, setup de `scz01`, checklist de salud) está en git aunque no en el árbol de trabajo: `git show inicio-2026-10-05:cbb01/memory.md`. Consultarla antes de tocar el túnel o el despliegue.
+
+## Flujo Git y despliegue
+
+- `main` es producción y no recibe push directo. Todo cambio va en `feature/<nombre>` (o `fix/<nombre>`), PR a `main`, squash merge. No hay rama `develop`.
+- Los hosts no tienen git: reciben archivos con `scripts/deploy.sh`, que copia la subcarpeta por `rsync` (con `--delete`) y deja en el host un `.deployed` con el SHA y la fecha.
+
+```bash
+scripts/deploy.sh gyrosfe            # simulación: lista lo que cambiaría en el host
+scripts/deploy.sh gyrosfe --apply    # despliega y crea el tag local deploy/gyrosfe/<fecha-hora>
+cat /webs/quanticasoft/gyrosfe/.deployed   # (en el host) qué commit está corriendo
+```
+
+El script solo corre desde `main`, limpio e igual a `origin/main`, y para los agentes exige que `cbb01/` y `scz01/` sean idénticos. No toca `.env`, `.venv/` ni las units ya instaladas en `/etc/systemd/system`, y no reinicia servicios. Correr siempre la simulación antes de `--apply`.
+
+`gyrosfe/` se copia tal cual a la raíz web: no poner ahí nada que no deba ser público. `gyrosfe/.htaccess` bloquea archivos ocultos, `.md` y `.sql`, pero no directorios ocultos.
 
 ## Comandos
 
-No hay build, linter ni suite de tests en ninguno de los dos proyectos.
+No hay build, linter ni suite de tests en ninguno de los proyectos.
 
 Agente (desde `cbb01/` o `scz01/`, requiere teléfono por ADB y `.env` con las variables `BU_*`):
 
@@ -33,6 +48,7 @@ pip install -r requirements.txt flask   # flask lo importa union/server.py pero 
 python -m union.main                    # flujo de consulta de saldo (pasos 1–10) contra el teléfono, imprime el saldo
 python -m union.server                  # servidor Flask en 0.0.0.0:8080 (lo que corre gyros-union-server.service)
 perl -c heartbeat.pl                    # chequeo de sintaxis de un script Perl
+diff -rq -x .DS_Store cbb01 scz01       # (desde la raíz) verificar que ambos agentes siguen idénticos
 ```
 
 `python -m union.server` con un `POST /debitar` ejecuta una **transferencia ACH real**; no hay modo de prueba ni dry-run.
@@ -45,13 +61,14 @@ php -l api/debitar.php                  # chequeo de sintaxis; no hay otro tooli
 
 No corre en local tal cual: `lib/db_connect.php` lee credenciales de `/webs/quanticasoft/_private/db.php` (ruta absoluta del servidor, debe devolver `['dsn','user','pass']`), la cookie de sesión exige HTTPS y todas las URLs están fijas bajo `/gyrosfe/`.
 
-En los hosts agente (salud y diagnóstico, detalle en `memory.md`):
+En los hosts agente (salud y diagnóstico):
 
 ```bash
 systemctl status gyros-agent gyros-usb-monitor gyros-union-server gyros-tunnel --no-pager
-journalctl -u gyros-union-server -f     # log "[PASO N] ..." de la automatización
+journalctl -u gyros-union-server -f     # log "[PASO N] ..." de la automatización: dice en qué pantalla se atoró
 journalctl -u gyros-tunnel -n 30 --no-pager
 adb devices
+ps -o pid,ppid,cmd -e | grep -E "detecta.pl|heartbeat.pl"   # exactamente 2 procesos, hijos de gyros-agent.pl
 ```
 
 ## Arquitectura
@@ -69,32 +86,34 @@ adb devices
 
 Estas llamadas son lentas (la automatización de UI tarda minutos): timeouts de curl de 180 s (saldo) y 280 s (débito).
 
+**El débito no es transaccional**: la transferencia ocurre en el paso 5 y la cuota se actualiza recién en el 6. La única protección contra un doble cobro es que `pago.nro_envio_transferencia` ya tenga valor (409). Si algo falla entre ambos pasos (timeout de curl, error de DB), el dinero ya se movió y la cuota sigue pendiente: nunca reintentar un débito fallido sin verificar antes en el banco o en el journal del agente.
+
 ### Agente (`cbb01/`, `scz01/`)
 
 Tres piezas independientes, cada una con su unit en `systemd/`:
 
 - **`union/`** — servidor Flask. `steps.py` (pasos 1–10: login, lectura de saldo, cierre de sesión y de app) y `steps_transferencia.py` (pasos 11–18: transferencia ACH hacia la "cuenta oficina" fija definida por `BU_OFICINA_*`). Cada paso es una función `pasoN_*` que valida la pantalla esperada y lanza excepción si no coincide; `server.py` solo los encadena. `FueraDeHorarioACH` y `DestinatarioNoCoincide` se devuelven como 409. Hay un lock por serial ADB: dispositivos distintos corren en paralelo, el mismo dispositivo responde 503 si está ocupado. Las credenciales bancarias llegan en el body de cada request (vienen de la DB de gyrosfe); las `BU_USUARIO`/`BU_PASSWORD` del `.env` solo las usa `union/main.py` para pruebas manuales.
-- **`gyros-agent.pl`** — supervisor que hace fork de `heartbeat.pl` (POST periódico a `gyrosfe/agent/heartbeat.php`) y `detecta.pl` (escucha `udevadm`, reporta connect/disconnect a `gyrosfe/agent/usb_event.php`, con ventana de gracia para re-enumeraciones USB). Ambos se autentican con headers `x-agent-id` / `x-agent-token` contra la tabla `Agent`. `detecta.pl` es lo que alimenta `UsbDeviceState`, es decir, el ruteo del paso 3.
+- **`gyros-agent.pl`** — supervisor que hace fork de `heartbeat.pl` (POST cada 60 s a `gyrosfe/agent/heartbeat.php`) y `detecta.pl` (escucha `udevadm`, reporta connect/disconnect a `gyrosfe/agent/usb_event.php`, con ventana de gracia para re-enumeraciones USB). Ambos se autentican con headers `x-agent-id` / `x-agent-token` contra la tabla `Agent`. `detecta.pl` es lo que alimenta `UsbDeviceState`, es decir, el ruteo del paso 3. No correrlos además como units propios: duplica heartbeats y eventos.
 - **`usb-monitor.pl`** — segundo reporte USB, por socket TCP crudo a `flamenco.cnb.net:4000` (`config.conf`). Redundante con `detecta.pl`; no está decidido cuál es el vigente — no tocar sin confirmar.
 
-Los scripts Perl y los units tienen fija la ruta `/opt/gyros/agent` (incluido `.env` y `config.conf`). Los valores por host (`AGENT_ID`, `AGENT_TOKEN`, `TUNNEL_SSH_KEY`, `TUNNEL_REMOTE_PORT`, `PYTHON_BIN`, `BU_*`) salen del `.env`; no volver a hardcodearlos, porque rompe la igualdad entre las dos carpetas.
+Los scripts Perl y los units tienen fija la ruta `/opt/gyros/agent` (incluido `.env` y `config.conf`). Los valores por host (`AGENT_ID`, `AGENT_TOKEN`, `TUNNEL_SSH_KEY`, `TUNNEL_REMOTE_PORT`, `PYTHON_BIN`, `BU_*`) salen del `.env`; no volver a hardcodearlos, porque rompe la igualdad entre las dos carpetas. systemd expande `${VAR}` en los argumentos de `ExecStart` pero no en la posición del ejecutable, de ahí el `/usr/bin/env ${PYTHON_BIN}` en `gyros-union-server.service`.
 
 `banco_union/` es código legado anterior a `union/` (solo lo referencia `setup.py`). No extenderlo, y no borrarlo sin confirmación.
 
-`systemd/gyros-tunnel-cleanup.sh` mata sesiones sshd huérfanas en flamenco, un host compartido con otros servicios. Su lógica es deliberadamente conservadora (solo actúa si hay exactamente una candidata); el porqué está en el encabezado del script y en `memory.md`.
+**Túnel**: `gyros-tunnel.service` usa `ssh` directo con `Restart=always` (no `autossh`) a propósito: así cada reconexión vuelve a ejecutar `ExecStartPre=gyros-tunnel-cleanup.sh`, que libera la sesión sshd huérfana que retiene el puerto en flamenco tras un corte de red (síntoma: `remote port forwarding failed for listen port`). El script solo mata si hay exactamente una candidata, porque desde `marco` no se puede distinguir el túnel de un agente del de otro; el porqué completo está en su encabezado.
 
 ### gyrosfe
 
 PHP plano, un archivo por endpoint:
 
-- `ui/main.php` — la aplicación entera (~2700 líneas: consulta principal, HTML, modales y todo el JS inline). `index.php` redirige ahí o a `ui/login.php`.
+- `ui/main.php` — la aplicación entera (~2700 líneas: consulta principal, HTML, modales y todo el JS inline). `index.php` y el login redirigen ahí; `ui/dashboard.php` (estado de agentes y dispositivos) ya no es el destino del login.
 - `api/*.php` — endpoints JSON llamados por `fetch` desde `main.php`. Patrón común: `auth_require_login()` → validar `$_POST` → `db_connect()` → sentencias preparadas → `{"ok": bool, ...}`.
 - `agent/*.php` — endpoints para los agentes. `heartbeat.php` y `usb_event.php` validan el token del agente; `usb_events.php` y `devices.json.php` son vistas de diagnóstico sin autenticación.
 - `lib/auth.php` (sesión con cookie restringida a `/gyrosfe`), `lib/db_connect.php` (PDO).
 
-**Nombres en PostgreSQL**: el esquema mezcla tablas y columnas camelCase que exigen comillas dobles (`"Agent"`, `"UsbDeviceState"`, `"Cliente"`, `"Heartbeat"`, `"clienteIdCliente"`, `"prestamoIdPrestamo"`, `"isActive"`, `"tunnelPort"`) con otras en minúsculas (`pago`, `prestamo`, `banco_cliente`, `saldo`). Copiar el entrecomillado exacto de una consulta existente.
+**Nombres en PostgreSQL**: el esquema mezcla tablas y columnas camelCase que exigen comillas dobles (`"Agent"`, `"UsbDeviceState"`, `"Cliente"`, `"Heartbeat"`, `"clienteIdCliente"`, `"prestamoIdPrestamo"`, `"isActive"`, `"tunnelPort"`) con otras en minúsculas (`pago`, `prestamo`, `banco_cliente`, `saldo`). Copiar el entrecomillado exacto de una consulta existente. PDO devuelve las claves del array con esas mismas mayúsculas (`$row['prestamoIdPrestamo']`, no `prestamoidprestamo`).
 
-**Préstamos**: `api/prestamo_crear.php` genera el plan con amortización francesa (cuota fija, `tasa_interes` mensual en %) e inserta una fila `pago` por cuota. Modo `migrar` registra solo las cuotas restantes de un préstamo preexistente a partir de `numero_cuota_actual` / `saldo_pendiente_actual`. Al debitar se calculan aparte los valores reales (`dias_real`, `interes_real`, `capital_real`, `saldo_deudor_real`) con interés diario = tasa / 100 / 30 sobre los días transcurridos desde el débito de la cuota anterior.
+**Préstamos**: `api/prestamo_crear.php` genera el plan con amortización francesa (cuota fija, `tasa_interes` mensual en %) e inserta una fila `pago` por cuota. Modo `migrar` registra solo las cuotas restantes de un préstamo preexistente a partir de `numero_cuota_actual` / `saldo_pendiente_actual`. Al debitar se calculan aparte los valores reales (`dias_real`, `interes_real`, `capital_real`, `saldo_deudor_real`) con interés diario = tasa / 100 / 30 sobre los días transcurridos desde el débito de la cuota anterior (o desde `fecha_prestamo` en la cuota 1).
 
 **Migraciones** (`migrations/`): no hay runner. `.htaccess` bloquea el acceso HTTP y los `.php` llaman a `auth_require_login()`, que corta la ejecución por CLI; en la práctica el SQL se aplica a mano con `psql` y el archivo queda como registro, con fecha de aplicación y rollback comentado.
 
@@ -102,4 +121,4 @@ PHP plano, un archivo por endpoint:
 
 - No hacer `git push`, reiniciar servicios ni lanzar débitos sin confirmación explícita del usuario.
 - No mostrar ni registrar valores de `.env`, tokens de agente, llaves SSH ni credenciales bancarias (`banco_cliente.usuario` / `key`).
-- En `flamenco.cnb.net` el usuario `marco` no tiene sudo: no reintentar `sudo` (genera alertas de seguridad), y cualquier limpieza de procesos ahí debe ser quirúrgica.
+- En `flamenco.cnb.net` el usuario `marco` no tiene sudo: no reintentar `sudo` (genera alertas de seguridad). El host es compartido (PM2, VSCode Server, `php-fpm`), así que cualquier limpieza de procesos ahí debe ser quirúrgica, nunca por patrón amplio.
