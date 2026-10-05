@@ -1,0 +1,17 @@
+[Unit]
+Description=Gyros USB Monitor Service (scz01)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/gyros/agent
+ExecStart=/usr/bin/perl /opt/gyros/agent/usb-monitor.pl
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gyros-usb-monitor
+
+[Install]
+WantedBy=multi-user.target

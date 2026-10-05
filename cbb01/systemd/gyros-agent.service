@@ -1,0 +1,14 @@
+[Unit]
+Description=Gyros USB Monitoring Agent (scz01)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/perl /opt/gyros/agent/gyros-agent.pl
+WorkingDirectory=/opt/gyros/agent
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

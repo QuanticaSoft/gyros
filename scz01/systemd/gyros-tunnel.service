@@ -1,0 +1,26 @@
+[Unit]
+Description=Reverse SSH tunnel gyros -> flamenco (puerto y llave via .env)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+# User= es la unica linea que sigue siendo especifica de cada host (no se
+# puede leer de .env) -- ajustar al usuario real de esta maquina al desplegar.
+User=robot
+EnvironmentFile=/opt/gyros/agent/.env
+ExecStartPre=/usr/local/bin/gyros-tunnel-cleanup.sh
+ExecStart=/usr/bin/ssh \
+  -i ${TUNNEL_SSH_KEY} \
+  -o StrictHostKeyChecking=no \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -o TCPKeepAlive=yes \
+  -N -R 127.0.0.1:${TUNNEL_REMOTE_PORT}:127.0.0.1:8080 \
+  marco@flamenco.cnb.net
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
