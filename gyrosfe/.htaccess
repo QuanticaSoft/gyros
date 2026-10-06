@@ -1,0 +1,5 @@
+# Esta carpeta es la raiz web: los archivos ocultos (.deployed, .gitignore),
+# la documentacion y el SQL no deben poder descargarse.
+<FilesMatch "^\.|\.(md|sql)$">
+    Require all denied
+</FilesMatch>
