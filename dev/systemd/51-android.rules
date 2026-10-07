@@ -1,0 +1,4 @@
+# Alcatel (1bbb)
+SUBSYSTEM=="usb", ATTR{idVendor}=="1bbb", MODE="0664", GROUP="plugdev"
+# ZTE (19d2)
+SUBSYSTEM=="usb", ATTR{idVendor}=="19d2", MODE="0664", GROUP="plugdev"
