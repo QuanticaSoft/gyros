@@ -15,7 +15,7 @@ Monorepo en `https://github.com/QuanticaSoft/gyros.git`, única fuente de verdad
 | `gyrosfe/` | Backend + UI web en PHP 8 / PostgreSQL (sin framework, sin Composer) | `marco@flamenco.cnb.net` | `/webs/quanticasoft/gyrosfe` | — |
 | `dev/` | Agente de desarrollo (Perl + Python) | `developer@100.95.139.122` (Tailscale) | `/home/dev` | 8087 |
 | `cbb01/` | Agente (Perl + Python), Cochabamba | `robot@100.107.84.95` (Tailscale) | `/opt/gyros/agent` | 8080 |
-| `scz01/` | Agente (Perl + Python), Santa Cruz | `agentescz1@100.117.246.119` (Tailscale) | `/home/agentescz1/scz1` | 8081 |
+| `scz01/` | Agente (Perl + Python), Santa Cruz | `agentescz1@100.117.246.119` (Tailscale) | `/opt/gyros/agent` | 8081 |
 
 La web se usa en `https://www.quanticasoft.com/gyrosfe/ui/login.php`. El puerto del túnel es el puerto remoto en flamenco (`TUNNEL_REMOTE_PORT` en el `.env` del agente, `Agent.tunnelPort` en la DB); en el propio agente Flask siempre escucha en `:8080`.
 

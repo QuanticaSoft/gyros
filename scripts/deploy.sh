@@ -17,7 +17,7 @@ case "$target" in
     gyrosfe) remote="marco@flamenco.cnb.net";      path="/webs/quanticasoft/gyrosfe" ;;
     dev)     remote="developer@100.95.139.122";    path="/home/dev" ;;
     cbb01)   remote="robot@100.107.84.95";         path="/opt/gyros/agent" ;;
-    scz01)   remote="agentescz1@100.117.246.119";  path="/home/agentescz1/scz1" ;;
+    scz01)   remote="agentescz1@100.117.246.119";  path="/opt/gyros/agent" ;;
     *) echo "Uso: $0 <gyrosfe|dev|cbb01|scz01> [--apply]" >&2; exit 2 ;;
 esac
 if [ -n "$mode" ] && [ "$mode" != "--apply" ]; then
