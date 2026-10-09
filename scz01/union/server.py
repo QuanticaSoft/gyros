@@ -17,6 +17,7 @@ el mismo dispositivo no puede atender dos solicitudes simultaneas (saldo o debit
 """
 
 import threading
+import traceback
 from datetime import datetime
 
 import uiautomator2 as u2
@@ -95,6 +96,7 @@ def consultar_saldo():
         return jsonify({"ok": True, "saldo": saldo})
 
     except Exception as exc:
+        traceback.print_exc()
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
@@ -158,6 +160,7 @@ def debitar():
         return jsonify({"ok": False, "error": str(exc)}), 409
 
     except Exception as exc:
+        traceback.print_exc()
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
