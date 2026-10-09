@@ -47,6 +47,23 @@ def _encender_y_desbloquear(d: u2.Device) -> None:
     )
 
 
+def _abrir_app(d: u2.Device) -> None:
+    # No se usa d.app_start(): sin activity lanza `monkey`, que en algunos
+    # teléfonos recorre /data/tombstones a ~1 s por archivo antes de terminar y
+    # supera el timeout de 60 s de d.shell().
+    salida = d.shell(
+        "cmd package resolve-activity --brief"
+        " -a android.intent.action.MAIN -c android.intent.category.LAUNCHER " + APP_PACKAGE
+    ).output.strip()
+    actividad = salida.splitlines()[-1].strip() if salida else ""
+    if "/" not in actividad:
+        raise RuntimeError(
+            "[PASO 1] No se encontró la pantalla inicial de UNImóvil Plus.\n"
+            "Verifica que la app esté instalada en el teléfono."
+        )
+    d.shell("am start -n " + actividad)
+
+
 def paso1_lanzar_app(d: u2.Device) -> None:
     """Enciende la pantalla y arranca UNImóvil Plus desde cero."""
     print("[PASO 1] Encendiendo pantalla y lanzando app...")
@@ -59,7 +76,7 @@ def paso1_lanzar_app(d: u2.Device) -> None:
     time.sleep(0.5)
     d.shell("am kill-all")
     time.sleep(1)
-    d.app_start(APP_PACKAGE)
+    _abrir_app(d)
     time.sleep(2)
     print("[PASO 1] App lanzada.")
 
