@@ -10,6 +10,8 @@ Type=simple
 User=robot
 WorkingDirectory=/opt/gyros/agent
 EnvironmentFile=/opt/gyros/agent/.env
+# Sin esto los print "[PASO N]" quedan en el buffer de stdout y no llegan al journal.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/env ${PYTHON_BIN} -m union.server
 Restart=always
 RestartSec=5

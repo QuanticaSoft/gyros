@@ -13,27 +13,38 @@ Monorepo en `https://github.com/QuanticaSoft/gyros.git`, única fuente de verdad
 | Carpeta | Qué es | Host (SSH) | Ruta en el host | Puerto del túnel |
 |---|---|---|---|---|
 | `gyrosfe/` | Backend + UI web en PHP 8 / PostgreSQL (sin framework, sin Composer) | `marco@flamenco.cnb.net` | `/webs/quanticasoft/gyrosfe` | — |
+| `dev/` | Agente de desarrollo (Perl + Python) | `developer@100.95.139.122` (Tailscale) | `/home/dev` | 8087 |
 | `cbb01/` | Agente (Perl + Python), Cochabamba | `robot@100.107.84.95` (Tailscale) | `/opt/gyros/agent` | 8080 |
 | `scz01/` | Agente (Perl + Python), Santa Cruz | `agentescz1@100.117.246.119` (Tailscale) | `/home/agentescz1/scz1` | 8081 |
 
 La web se usa en `https://www.quanticasoft.com/gyrosfe/ui/login.php`. El puerto del túnel es el puerto remoto en flamenco (`TUNNEL_REMOTE_PORT` en el `.env` del agente, `Agent.tunnelPort` en la DB); en el propio agente Flask siempre escucha en `:8080`.
 
-`cbb01/` y `scz01/` contienen **el mismo código y deben quedar byte a byte idénticos** (`diff -rq -x .DS_Store cbb01 scz01` no debe reportar nada). Todo cambio en el agente se aplica en ambas carpetas. Lo que difiere por host vive fuera del código: el `.env` (ignorado por git) y la línea `User=` de `gyros-tunnel.service` / `gyros-union-server.service`.
+`dev/`, `cbb01/` y `scz01/` contienen **el mismo código y en `main` deben quedar byte a byte idénticos** (`diff -rq -x .DS_Store dev cbb01; diff -rq -x .DS_Store dev scz01` no debe reportar nada). Solo difieren dentro de una rama mientras se desarrolla: el agente se edita **únicamente en `dev/`** y `scripts/promote.sh` copia el resultado a las otras dos; `cbb01/` y `scz01/` nunca se editan a mano. Lo que difiere por host vive fuera del código: el `.env` (ignorado por git), la línea `User=` de `gyros-tunnel.service` / `gyros-union-server.service` y, donde el código no vive en `/opt/gyros/agent`, un symlink desde esa ruta.
+
+`dev` es un agente más del gyrosfe de producción (fila propia en `"Agent"`, heartbeats y eventos USB reales): un teléfono de cliente conectado a ese host rutea sus débitos reales por ahí.
 
 La bitácora operativa histórica del agente (hallazgos del túnel, unidades systemd duplicadas, setup de `scz01`, checklist de salud) está en git aunque no en el árbol de trabajo: `git show inicio-2026-10-05:cbb01/memory.md`. Consultarla antes de tocar el túnel o el despliegue.
 
 ## Flujo Git y despliegue
 
 - `main` es producción y no recibe push directo. Todo cambio va en `feature/<nombre>` (o `fix/<nombre>`), PR a `main`, squash merge. No hay rama `develop`.
-- Los hosts no tienen git: reciben archivos con `scripts/deploy.sh`, que copia la subcarpeta por `rsync` (con `--delete`) y deja en el host un `.deployed` con el SHA y la fecha.
+- Los hosts no tienen git: reciben archivos con `scripts/deploy.sh`, que copia la subcarpeta por `rsync` (con `--delete`) y deja en el host un `.deployed` con el SHA, la fecha y la rama.
+- Un cambio en el agente recorre siempre este camino:
+  1. rama `feature/<nombre>`, editando solo `dev/`;
+  2. `scripts/deploy.sh dev --apply` (única carpeta que se despliega desde una rama) y prueba en el host DEV;
+  3. `scripts/promote.sh` para copiar `dev/` a `cbb01/` y `scz01/`, y commit;
+  4. PR a `main`, squash merge;
+  5. desde `main`, `scripts/deploy.sh cbb01 --apply` y `scripts/deploy.sh scz01 --apply`.
 
 ```bash
+scripts/deploy.sh dev --apply        # despliega la rama actual al agente de desarrollo
+scripts/promote.sh                   # deja cbb01/ y scz01/ idénticos a dev/ (no commitea)
 scripts/deploy.sh gyrosfe            # simulación: lista lo que cambiaría en el host
 scripts/deploy.sh gyrosfe --apply    # despliega y crea el tag local deploy/gyrosfe/<fecha-hora>
 cat /webs/quanticasoft/gyrosfe/.deployed   # (en el host) qué commit está corriendo
 ```
 
-El script solo corre desde `main`, limpio e igual a `origin/main`, y para los agentes exige que `cbb01/` y `scz01/` sean idénticos. No toca `.env`, `.venv/` ni las units ya instaladas en `/etc/systemd/system`, y no reinicia servicios. Correr siempre la simulación antes de `--apply`.
+Para producción el script solo corre desde `main`, limpio e igual a `origin/main`, y para `cbb01`/`scz01` exige que ambas carpetas sean idénticas a `dev/`; para `dev` solo exige el árbol limpio y no crea tag. Un host agente nuevo se prepara una vez con `scripts/setup-agent-host.sh` (ruta, symlink, reglas udev y units; se corre con sudo en el host). No toca `.env`, `.venv/` ni las units ya instaladas en `/etc/systemd/system`, y no reinicia servicios. Correr siempre la simulación antes de `--apply`.
 
 `gyrosfe/` se copia tal cual a la raíz web: no poner ahí nada que no deba ser público. `gyrosfe/.htaccess` bloquea archivos ocultos, `.md` y `.sql`, pero no directorios ocultos.
 
@@ -41,14 +52,14 @@ El script solo corre desde `main`, limpio e igual a `origin/main`, y para los ag
 
 No hay build, linter ni suite de tests en ninguno de los proyectos.
 
-Agente (desde `cbb01/` o `scz01/`, requiere teléfono por ADB y `.env` con las variables `BU_*`):
+Agente (desde `dev/`, requiere teléfono por ADB y `.env` con las variables `BU_*`):
 
 ```bash
 pip install -r requirements.txt flask   # flask lo importa union/server.py pero falta en requirements.txt
 python -m union.main                    # flujo de consulta de saldo (pasos 1–10) contra el teléfono, imprime el saldo
 python -m union.server                  # servidor Flask en 0.0.0.0:8080 (lo que corre gyros-union-server.service)
 perl -c heartbeat.pl                    # chequeo de sintaxis de un script Perl
-diff -rq -x .DS_Store cbb01 scz01       # (desde la raíz) verificar que ambos agentes siguen idénticos
+diff -rq -x .DS_Store dev cbb01; diff -rq -x .DS_Store dev scz01   # (desde la raíz) las tres carpetas siguen idénticas
 ```
 
 `python -m union.server` con un `POST /debitar` ejecuta una **transferencia ACH real**; no hay modo de prueba ni dry-run.

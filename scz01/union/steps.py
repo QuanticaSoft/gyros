@@ -9,6 +9,7 @@ Tiempos medidos de las capturas de pantalla:
   - Clic "INICIAR SESIÓN" (contraseña) → dashboard : ~3-5 s → sleep(3) + wait(timeout=15)
 """
 
+import re
 import time
 import uiautomator2 as u2
 
@@ -20,11 +21,53 @@ BOTON_INICIAR = "INICIAR SESIÓN"
 # Paso 1 — Encender pantalla y lanzar la app
 # ---------------------------------------------------------------------------
 
+ESPERA_DESBLOQUEO_S = 8
+
+
+def _pantalla_bloqueada(d: u2.Device) -> bool:
+    salida = d.shell("dumpsys window policy").output
+    _, _, estado_keyguard = salida.partition("KeyguardServiceDelegate")
+    coincidencia = re.search(r"showing=(true|false)", estado_keyguard)
+    return coincidencia is not None and coincidencia.group(1) == "true"
+
+
+def _encender_y_desbloquear(d: u2.Device) -> None:
+    # No se usa d.unlock(): en uiautomator2 3.x envía la tecla POWER (apaga una
+    # pantalla que ya estaba encendida) y solo desliza si la cree apagada, así
+    # que deja puesto el bloqueo por deslizamiento.
+    d.shell("input keyevent KEYCODE_WAKEUP")
+    d.shell("wm dismiss-keyguard")
+    for _ in range(ESPERA_DESBLOQUEO_S):
+        if not _pantalla_bloqueada(d):
+            return
+        time.sleep(1)
+    raise RuntimeError(
+        "[PASO 1] El teléfono sigue en la pantalla de bloqueo.\n"
+        "Quita el bloqueo: Ajustes → Seguridad → Bloqueo de pantalla → Ninguno."
+    )
+
+
+def _abrir_app(d: u2.Device) -> None:
+    # No se usa d.app_start(): sin activity lanza `monkey`, que en algunos
+    # teléfonos recorre /data/tombstones a ~1 s por archivo antes de terminar y
+    # supera el timeout de 60 s de d.shell().
+    salida = d.shell(
+        "cmd package resolve-activity --brief"
+        " -a android.intent.action.MAIN -c android.intent.category.LAUNCHER " + APP_PACKAGE
+    ).output.strip()
+    actividad = salida.splitlines()[-1].strip() if salida else ""
+    if "/" not in actividad:
+        raise RuntimeError(
+            "[PASO 1] No se encontró la pantalla inicial de UNImóvil Plus.\n"
+            "Verifica que la app esté instalada en el teléfono."
+        )
+    d.shell("am start -n " + actividad)
+
+
 def paso1_lanzar_app(d: u2.Device) -> None:
     """Enciende la pantalla y arranca UNImóvil Plus desde cero."""
     print("[PASO 1] Encendiendo pantalla y lanzando app...")
-    d.screen_on()
-    d.unlock()
+    _encender_y_desbloquear(d)
     time.sleep(1)
     # Cerrar todo antes de lanzar: home -> force-stop -> kill background
     d.press("home")
@@ -33,7 +76,7 @@ def paso1_lanzar_app(d: u2.Device) -> None:
     time.sleep(0.5)
     d.shell("am kill-all")
     time.sleep(1)
-    d.app_start(APP_PACKAGE)
+    _abrir_app(d)
     time.sleep(2)
     print("[PASO 1] App lanzada.")
 
@@ -49,13 +92,13 @@ def paso2_esperar_login(d: u2.Device) -> None:
 
     Splash 1 (logo + fondo azul)  ~2 s
     Splash 2 (logo circular)       ~3 s
-    Total estimado: 5 s → timeout conservador de 15 s
+    Total estimado: 5 s → timeout conservador de 30 s
     """
     print("[PASO 2] Esperando pantalla de login...")
     campo = d(className="android.widget.EditText")
     if not campo.wait(timeout=30):
         raise RuntimeError(
-            "[PASO 2] El campo de usuario no apareció en 15 s.\n"
+            "[PASO 2] El campo de usuario no apareció en 30 s.\n"
             "La app puede estar colgada en el splash o no se instaló correctamente."
         )
     print("[PASO 2] Pantalla de login lista.")
