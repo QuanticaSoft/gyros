@@ -600,6 +600,7 @@ header('Content-Type: text/html; charset=utf-8');
             font-size: .8rem;
         }
         .prest-table .td-num { text-align: right; font-family: monospace; }
+        .prest-table th.th-num { text-align: right; }
 
         /* ── Sección Pagos (por préstamo) ───────────────────────── */
         .pago-bloque { margin-bottom: 28px; }
@@ -2181,11 +2182,11 @@ header('Content-Type: text/html; charset=utf-8');
                 <thead><tr>
                     <th>Código Cliente</th>
                     <th>Fecha Préstamo</th>
-                    <th>Monto Prestado</th>
-                    <th>Cuota (Bs.)</th>
+                    <th class="th-num">Monto Prestado</th>
+                    <th class="th-num">Cuota (Bs.)</th>
                     <th style="text-align:center">Meses</th>
-                    <th>Total Pagar</th>
-                    <th>Total Intereses</th>
+                    <th class="th-num">Total Pagar</th>
+                    <th class="th-num">Total Intereses</th>
                     <th style="text-align:center">Acciones</th>
                 </tr></thead>
                 <tbody>${filas}${rows.length > 0 ? filaTotales : ''}${filaAgregar}</tbody>
