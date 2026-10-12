@@ -131,6 +131,8 @@ def debitar():
     if not lock.acquire(blocking=False):
         return jsonify({"ok": False, "error": f"Dispositivo {dispositivo} ocupado, reintente en unos segundos"}), 503
 
+    d = None
+    sesion_en_pantalla_conocida = False
     try:
         d = u2.connect(dispositivo)
 
@@ -149,10 +151,17 @@ def debitar():
         paso15_seleccionar_cuenta_origen(d)
         paso16_ingresar_monto_moneda_glosa(d, monto, glosa, oficina.moneda)
         paso17_continuar_y_confirmar(d, oficina.cuenta, oficina.banco)
-        resultado = paso18_leer_numero_envio(d)
-
-        paso9_cerrar_sesion(d)
-        paso10_cerrar_app(d)
+        try:
+            resultado = paso18_leer_numero_envio(d)
+            sesion_en_pantalla_conocida = True
+        except Exception as exc:
+            traceback.print_exc()
+            return jsonify({
+                "ok": False,
+                "transferencia_incierta": True,
+                "error": "CONFIRMAR ya fue pulsado pero no se pudo leer el comprobante: la transferencia "
+                         f"pudo haberse realizado. NO reintentar sin verificar en el banco. Detalle: {exc}",
+            }), 500
 
         return jsonify({"ok": True, "numero_envio": resultado["numero_envio"], "monto": monto})
 
@@ -164,7 +173,26 @@ def debitar():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
+        _cerrar_sin_alterar_respuesta(d, con_logout=sesion_en_pantalla_conocida)
         lock.release()
+
+
+def _cerrar_sin_alterar_respuesta(d, con_logout: bool) -> None:
+    """
+    Cierra sesion y app sin propagar errores: cuando se llega aqui la
+    transferencia ya se hizo o ya fallo, y un error de cierre no debe cambiar
+    lo que se le responde a gyrosfe (un 500 tras un debito real invita a
+    reintentarlo). El logout es un tap por coordenadas, asi que solo se hace
+    desde el comprobante; en cualquier otra pantalla basta con detener la app.
+    """
+    if d is None:
+        return
+    try:
+        if con_logout:
+            paso9_cerrar_sesion(d)
+        paso10_cerrar_app(d)
+    except Exception:
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

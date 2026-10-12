@@ -82,6 +82,28 @@ def paso1_lanzar_app(d: u2.Device) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Diálogo de permisos de Android
+# ---------------------------------------------------------------------------
+
+BOTON_PERMISO_EN_USO = ".*:id/permission_allow_foreground_only_button"
+
+
+def aceptar_dialogo_permiso(d: u2.Device) -> bool:
+    """
+    Concede "Mientras la app está en uso" si Android muestra su diálogo de
+    permisos. El diálogo tapa la app entera y, sin respuesta, reaparece en
+    cada arranque: el teléfono queda inutilizable hasta que alguien lo toca.
+    """
+    boton = d(resourceIdMatches=BOTON_PERMISO_EN_USO)
+    if not boton.wait(timeout=3):
+        return False
+    boton.click()
+    time.sleep(1)
+    print("[PERMISO] Diálogo de permiso de Android aceptado (mientras la app está en uso).")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Paso 2 — Esperar que los splash screens terminen y aparezca el login
 # ---------------------------------------------------------------------------
 
@@ -96,7 +118,7 @@ def paso2_esperar_login(d: u2.Device) -> None:
     """
     print("[PASO 2] Esperando pantalla de login...")
     campo = d(className="android.widget.EditText")
-    if not campo.wait(timeout=30):
+    if not campo.wait(timeout=30) and not (aceptar_dialogo_permiso(d) and campo.wait(timeout=30)):
         raise RuntimeError(
             "[PASO 2] El campo de usuario no apareció en 30 s.\n"
             "La app puede estar colgada en el splash o no se instaló correctamente."
