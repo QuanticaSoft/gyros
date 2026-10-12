@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
+from union.steps import aceptar_dialogo_permiso
+
 MENU_TRANSFERENCIAS_INTERBANCARIAS = "Transferencias Interbancarias"
 MENU_TRANSFERENCIA_ACH = "Transferencia ACH"
 
@@ -387,6 +389,15 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
 # Paso 17 - Continuar -> Verificacion de datos -> Confirmar
 # ---------------------------------------------------------------------------
 
+def _valor_tras_etiqueta(hierarchy: str, etiqueta: str) -> str:
+    """Texto del nodo que sigue a la etiqueta; cadena vacia si no se encuentra."""
+    textos = [t.strip() for t in re.findall(r'text="([^"]*)"', hierarchy) if t.strip()]
+    for i, texto in enumerate(textos[:-1]):
+        if texto.rstrip(":").strip().lower() == etiqueta.lower():
+            return textos[i + 1]
+    return ""
+
+
 def paso17_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, banco_esperado: str) -> None:
     print("[PASO 17] Tocando CONTINUAR...")
     # El foco queda en el campo Glosa tras paso 16 — moverlo con TAB antes de buscar el boton
@@ -404,6 +415,10 @@ def paso17_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, banco_esper
     header_verif = d(textContains="Verificacion de Datos")
     if not header_verif.exists:
         header_verif = d(textContains="Verificación de Datos")
+    # La app pide la ubicacion al entrar a Verificacion de Datos: el dialogo
+    # de Android tapa la pantalla aunque CONTINUAR si haya avanzado.
+    if not header_verif.exists and aceptar_dialogo_permiso(d):
+        header_verif.wait(timeout=8)
     if not header_verif.exists:
         print("[PASO 17] DPAD_CENTER no avanzo la pantalla, reintentando con tap directo...")
         d(textContains="CONTINUAR").click()
@@ -415,9 +430,13 @@ def paso17_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, banco_esper
     if not header_verif.wait(timeout=8):
         raise RuntimeError("[PASO 17] No se llego a la pantalla de Verificacion de Datos.")
 
-    # Segunda verificacion: en esta pantalla aparece el numero de cuenta completo
+    # Segunda verificacion: en esta pantalla la cuenta y el banco aparecen
+    # completos, cada uno bajo su etiqueta. Se exige igualdad exacta porque el
+    # banco solo valida cuenta y entidad, no el nombre del titular.
     hierarchy = d.dump_hierarchy()
-    if not _cuenta_visible_en_hierarchy(cuenta_esperada, hierarchy) or banco_esperado.upper() not in hierarchy.upper():
+    cuenta_en_pantalla = _valor_tras_etiqueta(hierarchy, "Cuenta Destino")
+    banco_en_pantalla = _valor_tras_etiqueta(hierarchy, "Banco Destinatario")
+    if cuenta_en_pantalla != cuenta_esperada.strip() or banco_en_pantalla.upper() != banco_esperado.strip().upper():
         raise DestinatarioNoCoincide(
             "[PASO 17] La pantalla de Verificacion de Datos no coincide con la cuentaOficina esperada. "
             "Abortando sin confirmar."
