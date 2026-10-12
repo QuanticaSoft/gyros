@@ -58,6 +58,13 @@ try {
         jsonErr('Esta cuota ya fue debitada. N° envío: ' . $pago['nro_envio_transferencia'], 409);
     }
 
+    // El monto llega del navegador: solo se acepta el de la cuota registrada
+    $montoCuota = number_format((float) $pago['cuota_fija'], 2, '.', '');
+    if (number_format((float) $monto, 2, '.', '') !== $montoCuota) {
+        jsonErr('El monto no coincide con la cuota (Bs. ' . $montoCuota . ')');
+    }
+    $monto = $montoCuota;
+
     $uuid = $pago['uuid'];
 
     // 2. Obtener serial ADB del dispositivo asignado al cliente
@@ -150,7 +157,7 @@ try {
             LIMIT 1
         ');
         $stmtPrev->execute([
-            ':pid'     => $pago['prestamoidprestamo'],
+            ':pid'     => $pago['prestamoIdPrestamo'],
             ':prevmes' => (int) $pago['mes'] - 1,
         ]);
         $prev    = $stmtPrev->fetch(PDO::FETCH_ASSOC);
