@@ -150,7 +150,9 @@ def paso4_clic_iniciar_sesion(d: u2.Device) -> None:
     """
     print("[PASO 4] Haciendo clic en INICIAR SESIÓN...")
     btn = d(text=BOTON_INICIAR)
-    if btn.exists:
+    # La pantalla de login sigue dibujándose tras el splash: el campo de usuario
+    # aparece antes que el botón, así que una comprobación instantánea falla a veces.
+    if btn.wait(timeout=5):
         btn.click()
         print("[PASO 4] Clic realizado.")
         return
