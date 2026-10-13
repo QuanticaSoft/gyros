@@ -725,6 +725,8 @@ header('Content-Type: text/html; charset=utf-8');
         .pago-cuota-input:hover { border-color: #4a5080; }
         .pago-cuota-input:focus { border-color: #7b93ff; outline: none; background: #0d1120; }
         .pago-cuota-input.saving { opacity: .5; pointer-events: none; }
+        .pago-cuota-input:disabled { opacity: .6; border-color: transparent; }
+        .pago-cerrado { font-size: 1.1rem; cursor: default; }
         .pago-table {
             width: 100%;
             border-collapse: collapse;
@@ -2666,25 +2668,30 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // CUOTA FIJA: programada arriba. Debajo: si se cobró, el monto cobrado (fijo);
-            // si solo hubo DEBITAR, la cuota editable. Con débito, además DEV (débito − cuota).
+            // CUOTA FIJA: el cobro no la altera. Solo si hubo DEBITAR se agregan debajo la
+            // cuota (editable hasta que el mes se cobra) y DEV (débito − cuota).
             const debitoTitle = c.debito != null
                 ? `Débito ${fmtMoney(c.debito)} · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
                 : '';
-            const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
-            const cobrado = c.estado === 'pagado' && c.transferencia != null;
-            let cuotaRealHtml = '';
-            if (cobrado) {
-                cuotaRealHtml = `<br><span class="val-real" title="Monto cobrado">${fmtMoney(c.transferencia)}</span>`;
-            } else if (c.debito != null) {
-                cuotaRealHtml = `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01" title="Cuota editable"` +
-                    ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">`;
-            }
-            const cuotaHtml = (cuotaRealHtml ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span>` : fmtMoney(c.cuota_fija)) +
-                cuotaRealHtml +
-                (c.debito != null
-                    ? `<br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
-                    : '');
+            const cerrado = !!c.nro_envio_transferencia;
+            const pagado  = c.estado === 'pagado';
+            const cuotaRef = parseFloat(
+                pagado && c.transferencia != null ? c.transferencia : (c.cuota_editada ?? c.cuota_fija)
+            ).toFixed(2);
+            const cuotaHtml = c.debito != null
+                ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span>` +
+                  `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01"` +
+                  ` title="${pagado ? 'Mes cobrado: cuota no editable' : 'Cuota editable'}"${pagado ? ' disabled' : ''}` +
+                  ` data-id="${c.id_pago}" data-original="${cuotaRef}" value="${cuotaRef}">` +
+                  `<br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
+                : fmtMoney(c.cuota_fija);
+            const accionHtml = cerrado
+                ? `<span class="pago-cerrado" title="Mes cobrado y cerrado">🔒</span>`
+                : `<button class="btn-accion btn-reg-pago"
+                        data-id="${c.id_pago}"
+                        data-fecha="${c.fecha_pago ?? ''}"
+                        data-estado="${calcEstado(c)}"
+                        title="Registrar pago">💸</button>`;
 
             const saldoFin   = parseFloat(c.saldo_deudor ?? 0).toFixed(2);
             const fechaVal   = c.fecha_pago      ? c.fecha_pago.substring(0, 10)      : '';
@@ -2707,13 +2714,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <td>${c.transferencia != null ? fmtMoney(c.transferencia) : '—'}</td>
                 <td class="mono">${c.nro_envio_transferencia ?? '—'}</td>
                 <td class="${estadoClass(calcEstado(c))}">${estadoLabel(calcEstado(c))}</td>
-                <td style="text-align:center">
-                    <button class="btn-accion btn-reg-pago"
-                        data-id="${c.id_pago}"
-                        data-fecha="${c.fecha_pago ?? ''}"
-                        data-estado="${calcEstado(c)}"
-                        title="Registrar pago">💸</button>
-                </td>
+                <td style="text-align:center">${accionHtml}</td>
             </tr>`;
         }).join('');
 
@@ -2891,16 +2892,13 @@ header('Content-Type: text/html; charset=utf-8');
         const saldoCell  = document.getElementById(`saldo-cell-${uuid}`);
         const montoInput = document.getElementById(`cobrar-monto-${uuid}`);
         const monto      = parseFloat(montoInput?.value ?? '');
-        const cuota      = parseFloat(montoInput?.dataset.cuota ?? '0');
 
         if (!monto || monto <= 0) {
-            alert('Ingresa un monto válido para cobrar.');
+            alert('El monto a transferir no puede ser cero.');
+            montoInput?.focus();
             return;
         }
-        const avisoMonto = monto.toFixed(2) !== cuota.toFixed(2)
-            ? `ATENCIÓN: la cuota es Bs. ${cuota.toFixed(2)} y se cobrará Bs. ${monto.toFixed(2)}; la cuota quedará como pagada con ese monto.\n\n`
-            : '';
-        if (!confirm(`${avisoMonto}¿Confirmas cobrar Bs. ${monto.toFixed(2)} a la cuenta oficina? Se consultará el saldo antes y después. Esta acción no se puede revertir.`)) {
+        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
             return;
         }
 

@@ -35,6 +35,14 @@ if ($estado !== '' && !in_array($estado, $estadosValidos, true)) {
 try {
     $pdo = db_connect();
 
+    // Un mes cobrado por transferencia ACH queda cerrado: no admite registro manual
+    $stmtCerrado = $pdo->prepare('SELECT "nro_envio_transferencia" FROM "pago" WHERE "id_pago" = :id');
+    $stmtCerrado->execute([':id' => $idPago]);
+    if (!empty($stmtCerrado->fetchColumn())) {
+        echo json_encode(['ok' => false, 'error' => 'El mes ya fue cobrado y cerrado']);
+        exit;
+    }
+
     $sets   = ['"updated_at" = now()'];
     $params = [':id' => $idPago];
 
