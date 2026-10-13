@@ -2499,12 +2499,12 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // CUOTA FIJA: programada arriba y, si hubo débito adicional, su monto debajo
+            // CUOTA FIJA: programada arriba y, solo si hubo DEBITAR, DEV (débito − cuota) debajo
             const debitoTitle = c.debito != null
-                ? `Débito adicional · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
+                ? `Débito ${fmtMoney(c.debito)} · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
                 : '';
             const cuotaHtml = c.debito != null
-                ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span><br><span class="val-debito" title="${debitoTitle}">${fmtMoney(c.debito)}</span>`
+                ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span><br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
                 : fmtMoney(c.cuota_fija);
 
             const saldoFin   = parseFloat(c.saldo_deudor ?? 0).toFixed(2);
@@ -2564,7 +2564,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <thead><tr>
                         <th>MES</th>
                         <th>FECHA PAGO <span class="th-pr">P/R</span></th>
-                        <th>CUOTA FIJA <span class="th-pr">P/D</span></th>
+                        <th>CUOTA FIJA <span class="th-pr">P/DEV</span></th>
                         <th>INTERÉS <span class="th-pr">P/R</span></th>
                         <th>CAPITAL <span class="th-pr">P/R</span></th>
                         <th>SALDO <span class="th-pr">P/R</span></th>
@@ -2684,11 +2684,12 @@ header('Content-Type: text/html; charset=utf-8');
         return res.json();
     }
 
-    async function postDebitar(idPago, monto, tipo) {
+    async function postDebitar(idPago, monto, tipo, cuota = null) {
         const fd = new FormData();
         fd.append('id_pago', idPago);
         fd.append('monto', monto.toFixed(2));
         fd.append('tipo', tipo);
+        if (cuota !== null) fd.append('cuota', cuota.toFixed(2));
         const ctrl = new AbortController();
         const tout = setTimeout(() => ctrl.abort(), 300000);
         const res  = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
@@ -2700,6 +2701,7 @@ header('Content-Type: text/html; charset=utf-8');
         return `<span class="aporte-etiqueta">${etiqueta} : Bs.</span>` +
             `<span class="aporte-estado">` +
                 `<span style="color:#34d399;font-weight:700">${parseFloat(data.monto).toFixed(2)}</span>` +
+                (data.dev != null ? ` <span class="val-debito">DEV ${parseFloat(data.dev).toFixed(2)}</span>` : '') +
                 `<div class="small mono" style="color:#9aa0b8">N° ${data.numero_envio}</div>` +
             `</span>`;
     }
@@ -2784,12 +2786,25 @@ header('Content-Type: text/html; charset=utf-8');
         const row        = document.getElementById(`debito-row-${uuid}`);
         const montoInput = document.getElementById(`debito-monto-${uuid}`);
         const monto      = parseFloat(montoInput?.value ?? '');
+        // Cuota vigente en la fila COBRAR; si ya no hay campo, el backend usa la cuota fija
+        const cuotaInput = document.getElementById(`cobrar-monto-${uuid}`);
+        let cuota = null;
+        if (cuotaInput) {
+            cuota = parseFloat(cuotaInput.value);
+            if (isNaN(cuota) || cuota < 0) {
+                alert('Ingresa una cuota válida en COBRAR para calcular DEV.');
+                return;
+            }
+        }
 
         if (!monto || monto <= 0) {
             alert('Ingresa un monto válido para debitar.');
             return;
         }
-        if (!confirm(`¿Confirmas debitar Bs. ${monto.toFixed(2)} a la cuenta oficina? Esta acción no se puede revertir.`)) {
+        const avisoDev = cuota !== null
+            ? `\n\nDEV = ${monto.toFixed(2)} − ${cuota.toFixed(2)} = Bs. ${(monto - cuota).toFixed(2)}`
+            : '';
+        if (!confirm(`¿Confirmas debitar Bs. ${monto.toFixed(2)} a la cuenta oficina? Esta acción no se puede revertir.${avisoDev}`)) {
             return;
         }
 
@@ -2804,7 +2819,7 @@ header('Content-Type: text/html; charset=utf-8');
         const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
 
         try {
-            const data = await postDebitar(idPago, monto, 'debito');
+            const data = await postDebitar(idPago, monto, 'debito', cuota);
             if (!data.ok) throw new Error(data.error ?? 'desconocido');
             if (row) row.innerHTML = aporteResultadoHtml('DEBITAR', data);
         } catch (err) {

@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $idPago = trim((string) ($_POST['id_pago'] ?? ''));
 $monto  = trim((string) ($_POST['monto']   ?? ''));
 $tipo   = trim((string) ($_POST['tipo']    ?? 'cobrar'));
+$cuota  = trim((string) ($_POST['cuota']   ?? ''));
 
 if ($idPago === '' || $monto === '') {
     jsonErr('Parámetros requeridos: id_pago, monto');
@@ -33,6 +34,9 @@ if (!is_numeric($monto)) {
 $monto = number_format((float) $monto, 2, '.', '');
 if ((float) $monto <= 0) {
     jsonErr('Monto inválido');
+}
+if ($cuota !== '' && (!is_numeric($cuota) || (float) $cuota < 0)) {
+    jsonErr('Cuota inválida');
 }
 
 require_once __DIR__ . '/../lib/db_connect.php';
@@ -150,21 +154,27 @@ try {
     $numeroEnvio = (string) ($agentData['numero_envio'] ?? '');
 
     if ($tipo === 'debito') {
-        // El débito adicional solo se registra: no cambia estado ni amortización
+        // El débito adicional solo se registra: no cambia estado ni amortización.
+        // La cuota es editable en el dashboard; sin ella se usa la cuota fija registrada.
+        $cuotaRef = $cuota !== '' ? (float) $cuota : (float) $pago['cuota_fija'];
+        $dev      = number_format((float) $monto - $cuotaRef, 2, '.', '');
+
         $stmtDeb = $pdo->prepare('
             UPDATE "pago"
             SET "debito"             = :monto,
+                "dev"                = :dev,
                 "nro_envio_debito"   = :nro,
                 "fecha_debito_extra" = CURRENT_DATE,
                 "updated_at"         = NOW()
             WHERE "id_pago" = :id
         ');
-        $stmtDeb->execute([':monto' => $monto, ':nro' => $numeroEnvio, ':id' => $idPago]);
+        $stmtDeb->execute([':monto' => $monto, ':dev' => $dev, ':nro' => $numeroEnvio, ':id' => $idPago]);
 
         echo json_encode([
             'ok'           => true,
             'numero_envio' => $numeroEnvio,
             'monto'        => $monto,
+            'dev'          => $dev,
         ]);
         exit;
     }
