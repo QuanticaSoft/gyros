@@ -27,6 +27,8 @@ $codigo         = trim((string) ($_POST['codigo']         ?? ''));
 $sector         = trim((string) ($_POST['sector']         ?? ''));
 $garantenombre  = trim((string) ($_POST['garantenombre']  ?? ''));
 $garantecelular = trim((string) ($_POST['garantecelular'] ?? ''));
+$garante2nombre  = trim((string) ($_POST['garante2nombre']  ?? ''));
+$garante2celular = trim((string) ($_POST['garante2celular'] ?? ''));
 $observaciones  = trim((string) ($_POST['observaciones']  ?? ''));
 
 if ($serial === '')         jsonErr('El serial del dispositivo es requerido');
@@ -36,8 +38,6 @@ if ($numerocelular === '')  jsonErr('El celular es requerido');
 if ($vtotarjeta === '')     jsonErr('El vencimiento de tarjeta es requerido');
 if ($sector === '')         jsonErr('El sector es requerido');
 if ($codigo === '')         jsonErr('El código es requerido');
-if ($garantenombre === '')  jsonErr('El nombre del garante es requerido');
-if ($garantecelular === '') jsonErr('El celular del garante es requerido');
 
 require_once __DIR__ . '/../lib/db_connect.php';
 
@@ -71,10 +71,12 @@ try {
     $ins = $pdo->prepare('
         INSERT INTO "Cliente"
             (uuid, nombrecompleto, ci, numerocelular, numerofijo, vtotarjeta, codigo,
-             "isActive", dispositivo, sector, garantenombre, garantecelular, observaciones, fecharegistro)
+             "isActive", dispositivo, sector, garantenombre, garantecelular,
+             garante2nombre, garante2celular, observaciones, fecharegistro)
         VALUES
             (:uuid, :nombre, :ci, :celular, :fijo, :vtotarjeta, :codigo,
-             true, :serial, :sector, :garantenombre, :garantecelular, :observaciones, NOW())
+             true, :serial, :sector, :garantenombre, :garantecelular,
+             :garante2nombre, :garante2celular, :observaciones, NOW())
     ');
     $ins->execute([
         ':uuid'           => $uuid,
@@ -86,8 +88,10 @@ try {
         ':codigo'         => $codigo,
         ':serial'         => $serial,
         ':sector'         => $sector,
-        ':garantenombre'  => $garantenombre,
-        ':garantecelular' => $garantecelular,
+        ':garantenombre'   => $garantenombre   !== '' ? $garantenombre   : null,
+        ':garantecelular'  => $garantecelular  !== '' ? $garantecelular  : null,
+        ':garante2nombre'  => $garante2nombre  !== '' ? $garante2nombre  : null,
+        ':garante2celular' => $garante2celular !== '' ? $garante2celular : null,
         ':observaciones'  => $observaciones !== '' ? $observaciones : null,
     ]);
 
