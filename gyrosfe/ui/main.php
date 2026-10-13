@@ -428,9 +428,9 @@ header('Content-Type: text/html; charset=utf-8');
         /* ── Columna Aporte: filas COBRAR / DEBITAR ────────────── */
         .aporte-fila {
             display: grid;
-            grid-template-columns: 92px 84px 34px;
+            grid-template-columns: 92px 98px 34px;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             min-height: 30px;
             font-size: .78rem;
             color: #9aa0b8;
@@ -439,6 +439,7 @@ header('Content-Type: text/html; charset=utf-8');
         .aporte-fila .aporte-etiqueta { text-align: right; letter-spacing: .03em; }
         .aporte-fila .aporte-estado   { grid-column: 2 / 4; text-align: left; }
         .aporte-input {
+            box-sizing: border-box;
             width: 100%;
             padding: 3px 6px;
             text-align: right;
