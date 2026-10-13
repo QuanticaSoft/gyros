@@ -291,6 +291,51 @@ header('Content-Type: text/html; charset=utf-8');
         .info-cell label { font-size:.75rem; color:#9aa0b8; }
         .info-cell p { margin:2px 0 0; font-size:.9rem; }
 
+        /* ── Buscador de devoluciones en toolbar ───────────────── */
+        .devol-buscador {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+        .devol-titulo {
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #e0e4f0;
+        }
+        .devol-caja {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #2a2f45;
+            border-radius: 10px;
+            background: #131624;
+            overflow: hidden;
+        }
+        .devol-caja:focus-within { border-color: #7b93ff; }
+        .devol-caja button {
+            width: auto;
+            background: #1a1f35;
+            border: none;
+            padding: 7px 10px;
+            font-size: .95rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .devol-caja button:hover { background: #262c48; }
+        .devol-caja button:disabled { opacity: .4; cursor: wait; }
+        .toolbar .devol-caja input {
+            min-width: 150px;
+            width: 150px;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            color: #e0e4f0;
+            outline: none;
+        }
+        #modal-devoluciones .modal-box { max-width: 760px; }
+
         /* ── Badge online en toolbar ───────────────────────────── */
         .tabla-cabecera {
             display: flex;
@@ -921,6 +966,14 @@ header('Content-Type: text/html; charset=utf-8');
         <input id="q" type="search" placeholder="Buscar por agente, serial, dispositivo, cliente..." oninput="filterRows()" />
         <a href="" title="Refrescar">Refrescar</a>
         <span class="badge-online"><?= count($usbRows) ?> online</span>
+        <div class="devol-buscador">
+            <span class="devol-titulo">Devoluciones</span>
+            <div class="devol-caja">
+                <button type="button" id="devol-btn" title="Buscar devoluciones por CI" onclick="buscarDevoluciones()">🔍</button>
+                <input id="devol-ci" type="search" placeholder="CI Cliente"
+                       onkeydown="if (event.key === 'Enter') buscarDevoluciones()" />
+            </div>
+        </div>
     </div>
 
     <!-- ── Tabla: dispositivos ONLINE + conectados ahora ─────────── -->
@@ -1228,6 +1281,14 @@ header('Content-Type: text/html; charset=utf-8');
     <!-- ════════════════════════════════════════════════════════════
          MODAL ➕  Registrar dispositivo con cliente nuevo
     ════════════════════════════════════════════════════════════ -->
+    <div id="modal-devoluciones" class="modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal-box">
+            <button class="modal-close" onclick="cerrarModal('modal-devoluciones')" title="Cerrar">✕</button>
+            <h2 id="devol-modal-titulo">Devoluciones</h2>
+            <div id="devol-modal-contenido"></div>
+        </div>
+    </div>
+
     <div id="modal-registrar" class="modal-overlay" role="dialog" aria-modal="true">
         <div class="modal-box">
             <button class="modal-close" onclick="cerrarModal('modal-registrar')" title="Cerrar">✕</button>
@@ -1924,6 +1985,68 @@ header('Content-Type: text/html; charset=utf-8');
             document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
         }
     });
+
+    // ── Buscador de devoluciones por CI ──────────────────────────
+    async function buscarDevoluciones() {
+        const input = document.getElementById('devol-ci');
+        const btn   = document.getElementById('devol-btn');
+        const ci    = input.value.trim();
+        if (ci === '') {
+            alert('Ingresa el CI del cliente.');
+            input.focus();
+            return;
+        }
+
+        const titulo    = document.getElementById('devol-modal-titulo');
+        const contenido = document.getElementById('devol-modal-contenido');
+        btn.disabled = true;
+        try {
+            const res  = await fetch('/gyrosfe/api/devoluciones_buscar.php?ci=' + encodeURIComponent(ci));
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error ?? 'desconocido');
+
+            titulo.textContent = `Devoluciones · CI ${ci}`;
+            contenido.replaceChildren();
+
+            if (data.data.length === 0) {
+                const p = document.createElement('p');
+                p.style.color = '#9aa0b8';
+                p.textContent = 'No existe ningún registro de devolución para este CI.';
+                contenido.appendChild(p);
+            } else {
+                const columnas = [
+                    ['CÓDIGO',        d => d.codigo_cliente  ?? '—'],
+                    ['NOMBRE',        d => d.nombre_cliente  ?? '—'],
+                    ['MONTO',         d => fmtMoney(d.monto_a_devolver)],
+                    ['FECHA COBRO',   d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito.substring(0, 10)) : '—'],
+                    ['MODO',          d => d.modo_devolucion ?? '—'],
+                    ['ESTADO',        d => d.estado          ?? '—'],
+                ];
+                const wrap  = document.createElement('div');
+                wrap.className = 'pago-table-wrap';
+                const tabla = document.createElement('table');
+                tabla.className = 'pago-table';
+                const trHead = tabla.createTHead().insertRow();
+                columnas.forEach(([nombre]) => {
+                    const th = document.createElement('th');
+                    th.textContent = nombre;
+                    trHead.appendChild(th);
+                });
+                const tbody = tabla.createTBody();
+                data.data.forEach(d => {
+                    const tr = tbody.insertRow();
+                    columnas.forEach(([, valor]) => { tr.insertCell().textContent = valor(d); });
+                });
+                wrap.appendChild(tabla);
+                contenido.appendChild(wrap);
+            }
+            abrirModal('modal-devoluciones');
+        } catch (err) {
+            alert('Error al buscar devoluciones: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
 
     // ── Modal ➕ Registrar ───────────────────────────────────────
     function abrirModalRegistrar(serial, dispositivo, agentId) {
