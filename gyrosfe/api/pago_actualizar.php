@@ -99,7 +99,7 @@ try {
                     LIMIT 1
                 ');
                 $stmtPrev->execute([
-                    ':pid'     => $info['prestamoidprestamo'],
+                    ':pid'     => $info['prestamoIdPrestamo'],
                     ':prevmes' => (int) $info['mes'] - 1,
                 ]);
                 $prev    = $stmtPrev->fetch(PDO::FETCH_ASSOC);
