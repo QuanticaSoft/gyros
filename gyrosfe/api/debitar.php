@@ -19,11 +19,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $idPago = trim((string) ($_POST['id_pago'] ?? ''));
 $monto  = trim((string) ($_POST['monto']   ?? ''));
+$tipo   = trim((string) ($_POST['tipo']    ?? 'cobrar'));
 
 if ($idPago === '' || $monto === '') {
     jsonErr('Parámetros requeridos: id_pago, monto');
 }
-if (!is_numeric($monto) || (float) $monto <= 0) {
+if (!in_array($tipo, ['cobrar', 'debito'], true)) {
+    jsonErr('Tipo inválido');
+}
+if (!is_numeric($monto)) {
+    jsonErr('Monto inválido');
+}
+$monto = number_format((float) $monto, 2, '.', '');
+if ((float) $monto <= 0) {
     jsonErr('Monto inválido');
 }
 
@@ -39,6 +47,7 @@ try {
     // 1. Obtener la cuota, su prestamo y el cliente duenio
     $stmtPago = $pdo->prepare('
         SELECT pg."id_pago", pg."fecha_pago", pg."nro_envio_transferencia",
+               pg."debito", pg."nro_envio_debito", pg."cuota_editada",
                pg."mes", pg."saldo_inicial", pg."cuota_fija",
                pg."prestamoIdPrestamo",
                pr."clienteIdCliente" AS uuid,
@@ -54,16 +63,12 @@ try {
     if (!$pago) {
         jsonErr('Cuota no encontrada', 404);
     }
-    if (!empty($pago['nro_envio_transferencia'])) {
-        jsonErr('Esta cuota ya fue debitada. N° envío: ' . $pago['nro_envio_transferencia'], 409);
+    if ($tipo === 'cobrar' && !empty($pago['nro_envio_transferencia'])) {
+        jsonErr('Esta cuota ya fue cobrada. N° envío: ' . $pago['nro_envio_transferencia'], 409);
     }
-
-    // El monto llega del navegador: solo se acepta el de la cuota registrada
-    $montoCuota = number_format((float) $pago['cuota_fija'], 2, '.', '');
-    if (number_format((float) $monto, 2, '.', '') !== $montoCuota) {
-        jsonErr('El monto no coincide con la cuota (Bs. ' . $montoCuota . ')');
+    if ($tipo === 'debito' && ($pago['debito'] !== null || !empty($pago['nro_envio_debito']))) {
+        jsonErr('Esta cuota ya tiene un débito registrado. N° envío: ' . $pago['nro_envio_debito'], 409);
     }
-    $monto = $montoCuota;
 
     $uuid = $pago['uuid'];
 
@@ -144,6 +149,32 @@ try {
 
     $numeroEnvio = (string) ($agentData['numero_envio'] ?? '');
 
+    if ($tipo === 'debito') {
+        // El débito adicional solo se registra: no cambia estado ni amortización.
+        // DEV parte de la cuota fija; el operador puede ajustarla luego en el modal Pagos.
+        $cuotaRef = (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
+        $dev      = number_format((float) $monto - $cuotaRef, 2, '.', '');
+
+        $stmtDeb = $pdo->prepare('
+            UPDATE "pago"
+            SET "debito"             = :monto,
+                "dev"                = :dev,
+                "nro_envio_debito"   = :nro,
+                "fecha_debito_extra" = CURRENT_DATE,
+                "updated_at"         = NOW()
+            WHERE "id_pago" = :id
+        ');
+        $stmtDeb->execute([':monto' => $monto, ':dev' => $dev, ':nro' => $numeroEnvio, ':id' => $idPago]);
+
+        echo json_encode([
+            'ok'           => true,
+            'numero_envio' => $numeroEnvio,
+            'monto'        => $monto,
+            'dev'          => $dev,
+        ]);
+        exit;
+    }
+
     // 6. Calcular dias_real y valores reales de amortización
     $today = new DateTimeImmutable('today');
 
@@ -169,9 +200,9 @@ try {
     $diasReal    = (int) $today->diff($refDate)->days;
     $tasaDiaria  = (float) $pago['tasa_interes'] / 100.0 / 30.0;
     $saldoIni    = (float) $pago['saldo_inicial'];
-    $cuotaFija   = (float) $pago['cuota_fija'];
     $interesReal = round($saldoIni * $tasaDiaria * $diasReal, 2);
-    $capitalReal = round(max(0.0, $cuotaFija - $interesReal), 2);
+    // El monto cobrado puede diferir de la cuota fija: el capital sale de lo realmente transferido
+    $capitalReal = round(max(0.0, (float) $monto - $interesReal), 2);
     $saldoReal   = round(max(0.0, $saldoIni - $capitalReal), 2);
 
     // 7. Registrar el débito con valores reales en la cuota

@@ -70,6 +70,11 @@ SELECT
   pp.cuota_fija                            AS pp_cuota_fija,
   pp.dia_prestamo                          AS pp_dia_prestamo,
 
+  COALESCE(pp.id_pago, lastpaid.id_pago)   AS deb_id_pago,
+  CASE WHEN pp.id_pago IS NOT NULL
+       THEN pp.debito ELSE lastpaid.debito
+  END                                      AS deb_monto,
+
   bc.usuario                               AS bc_usuario,
   bc.key                                   AS bc_key,
 
@@ -102,6 +107,7 @@ LEFT JOIN LATERAL (
         pg.fecha_pago,
         pg.mes,
         pg.cuota_fija,
+        pg.debito,
         EXTRACT(DAY FROM pr.fecha_prestamo)::int AS dia_prestamo,
         CASE
             WHEN pg.estado = 'pagado'        THEN 'pagado'
@@ -133,7 +139,7 @@ LEFT JOIN LATERAL (
 ) sl ON true
 LEFT JOIN LATERAL (
     -- Última cuota debitada (pagada) del cliente, para mostrar su par antes/después
-    SELECT pg.id_pago
+    SELECT pg.id_pago, pg.debito
     FROM "pago" pg
     JOIN "prestamo" pr ON pr."id_prestamo" = pg."prestamoIdPrestamo"
     WHERE pr."clienteIdCliente" = cl.uuid
@@ -285,6 +291,51 @@ header('Content-Type: text/html; charset=utf-8');
         .info-cell label { font-size:.75rem; color:#9aa0b8; }
         .info-cell p { margin:2px 0 0; font-size:.9rem; }
 
+        /* ── Buscador de devoluciones en toolbar ───────────────── */
+        .devol-buscador {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+        .devol-titulo {
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #e0e4f0;
+        }
+        .devol-caja {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #2a2f45;
+            border-radius: 10px;
+            background: #131624;
+            overflow: hidden;
+        }
+        .devol-caja:focus-within { border-color: #7b93ff; }
+        .devol-caja button {
+            width: auto;
+            background: #1a1f35;
+            border: none;
+            padding: 7px 10px;
+            font-size: .95rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .devol-caja button:hover { background: #262c48; }
+        .devol-caja button:disabled { opacity: .4; cursor: wait; }
+        .toolbar .devol-caja input {
+            min-width: 150px;
+            width: 150px;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            color: #e0e4f0;
+            outline: none;
+        }
+        #modal-devoluciones .modal-box { max-width: 760px; }
+
         /* ── Badge online en toolbar ───────────────────────────── */
         .tabla-cabecera {
             display: flex;
@@ -370,6 +421,34 @@ header('Content-Type: text/html; charset=utf-8');
             transition: background .15s;
         }
         .btn-accion:hover { background: rgba(255,255,255,.1); }
+        .btn-accion:disabled { opacity: .35; cursor: not-allowed; }
+
+        /* ── Columna Aporte: filas COBRAR / DEBITAR ────────────── */
+        .aporte-fila {
+            display: grid;
+            grid-template-columns: 92px 84px 34px;
+            align-items: center;
+            gap: 6px;
+            min-height: 30px;
+            font-size: .78rem;
+            color: #9aa0b8;
+            white-space: nowrap;
+        }
+        .aporte-fila .aporte-etiqueta { text-align: right; letter-spacing: .03em; }
+        .aporte-fila .aporte-estado   { grid-column: 2 / 4; text-align: left; }
+        .aporte-input {
+            width: 100%;
+            padding: 3px 6px;
+            text-align: right;
+            font-size: .82rem;
+            color: #e0e4f0;
+            background: rgba(255,255,255,.05);
+            border: 1px solid #2a2f45;
+            border-radius: 6px;
+        }
+        .aporte-input:disabled { opacity: .45; }
+        .aporte-ocupado .aporte-input,
+        .aporte-ocupado .btn-accion { pointer-events: none; opacity: .4; }
 
         /* ── Info del dispositivo en modal ────────────────────── */
         .device-info-bar {
@@ -632,6 +711,22 @@ header('Content-Type: text/html; charset=utf-8');
         .pago-fecha-input:hover { border-color: #4a5080; }
         .pago-fecha-input:focus { border-color: #7b93ff; outline: none; background: #0d1120; }
         .pago-fecha-input.saving { opacity: .5; pointer-events: none; }
+        .pago-cuota-input {
+            background: transparent;
+            border: 1px solid #2a2f45;
+            border-radius: 4px;
+            color: #7b93ff;
+            font-size: .80rem;
+            font-weight: 600;
+            padding: 2px 4px;
+            width: 78px;
+            text-align: center;
+        }
+        .pago-cuota-input:hover { border-color: #4a5080; }
+        .pago-cuota-input:focus { border-color: #7b93ff; outline: none; background: #0d1120; }
+        .pago-cuota-input.saving { opacity: .5; pointer-events: none; }
+        .pago-cuota-input:disabled { opacity: .6; border-color: transparent; }
+        .pago-cerrado { font-size: 1.1rem; cursor: default; }
         .pago-table {
             width: 100%;
             border-collapse: collapse;
@@ -669,6 +764,7 @@ header('Content-Type: text/html; charset=utf-8');
         .val-prog { font-size: .72rem; color: #555c7a; }
         .val-real { font-size: .80rem; color: #7b93ff; font-weight: 600; }
         .val-real.late { color: #f87171; }
+        .val-debito { font-size: .80rem; color: #fbbf24; font-weight: 600; }
         .pago-table th .th-pr {
             font-size: .58rem; color: #555c7a;
             font-weight: 400; letter-spacing: .02em;
@@ -872,6 +968,14 @@ header('Content-Type: text/html; charset=utf-8');
         <input id="q" type="search" placeholder="Buscar por agente, serial, dispositivo, cliente..." oninput="filterRows()" />
         <a href="" title="Refrescar">Refrescar</a>
         <span class="badge-online"><?= count($usbRows) ?> online</span>
+        <div class="devol-buscador">
+            <span class="devol-titulo">Devoluciones</span>
+            <div class="devol-caja">
+                <button type="button" id="devol-btn" title="Buscar devoluciones por CI" onclick="buscarDevoluciones()">🔍</button>
+                <input id="devol-ci" type="search" placeholder="CI Cliente"
+                       onkeydown="if (event.key === 'Enter') buscarDevoluciones()" />
+            </div>
+        </div>
     </div>
 
     <!-- ── Tabla: dispositivos ONLINE + conectados ahora ─────────── -->
@@ -905,7 +1009,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <th>Usuario / Key</th>
                 <th>Monto Prestado</th>
                 <th>Cuota</th>
-                <th>Debitar</th>
+                <th>Aporte</th>
                 <th>Acción</th>
             </tr>
         </thead>
@@ -1055,25 +1159,48 @@ header('Content-Type: text/html; charset=utf-8');
                 ?>
                 <td class="mono" style="white-space:nowrap"><?= $cuotaHtml ?></td>
 
-                <!-- Debitar -->
+                <!-- Aporte: COBRAR (cuota pendiente) y DEBITAR (débito adicional) -->
                 <?php
                     $ppIdPago    = $r['pp_id_pago']     ?? null;
                     $ppCuotaFija = $r['pp_cuota_fija']  ?? null;
+                    $debIdPago   = $r['deb_id_pago']    ?? null;
+                    $debMonto    = $r['deb_monto']      ?? null;
                 ?>
-                <td style="text-align:center" id="debitar-cell-<?= esc($clienteUuid) ?>">
-                <?php if ($ppIdPago !== null): ?>
-                    <div style="display:inline-flex;align-items:center;gap:6px">
-                        <span class="mono" style="color:#e0e4f0;font-size:.82rem"
-                              id="debitar-monto-<?= esc($clienteUuid) ?>"
-                              data-monto="<?= esc(number_format((float) $ppCuotaFija, 2, '.', '')) ?>"
-                        >Bs. <?= number_format((float) $ppCuotaFija, 2) ?></span>
-                        <button class="btn-accion" title="Debitar (transferencia ACH)"
-                                onclick="debitarCliente('<?= esc($clienteUuid) ?>','<?= esc((string)$ppIdPago) ?>')">💶</button>
-                    </div>
-                <?php elseif ($lpCantidad > 0): ?>
-                    <span class="mono" style="color:#9aa0b8">Bs. 0.00</span>
-                <?php else: ?>
+                <td id="debitar-cell-<?= esc($clienteUuid) ?>">
+                <?php if (!$registrado): ?>
                     <span style="color:#555c7a">—</span>
+                <?php else: ?>
+                    <div class="aporte-fila" id="cobrar-row-<?= esc($clienteUuid) ?>">
+                        <span class="aporte-etiqueta">COBRAR : Bs.</span>
+                    <?php if ($ppIdPago !== null): ?>
+                        <input type="number" class="aporte-input mono" min="0.01" step="0.01"
+                               id="cobrar-monto-<?= esc($clienteUuid) ?>"
+                               data-cuota="<?= esc(number_format((float) $ppCuotaFija, 2, '.', '')) ?>"
+                               value="<?= esc(number_format((float) $ppCuotaFija, 2, '.', '')) ?>">
+                        <button class="btn-accion" title="Cobrar cuota (transferencia ACH)"
+                                onclick="debitarCliente('<?= esc($clienteUuid) ?>','<?= esc((string)$ppIdPago) ?>')">💶</button>
+                    <?php elseif ($lpCantidad > 0): ?>
+                        <span class="aporte-estado mono">0.00</span>
+                    <?php else: ?>
+                        <span class="aporte-estado" style="color:#555c7a">—</span>
+                    <?php endif; ?>
+                    </div>
+                    <div class="aporte-fila" id="debito-row-<?= esc($clienteUuid) ?>">
+                        <span class="aporte-etiqueta">DEBITAR : Bs.</span>
+                    <?php if ($debIdPago === null): ?>
+                        <input type="number" class="aporte-input mono" disabled>
+                        <button class="btn-accion" disabled title="El cliente no tiene cuotas donde registrar el débito">🏧</button>
+                    <?php elseif ($debMonto !== null): ?>
+                        <input type="number" class="aporte-input mono" disabled
+                               value="<?= esc(number_format((float) $debMonto, 2, '.', '')) ?>">
+                        <button class="btn-accion" disabled title="Esta cuota ya tiene un débito registrado">🏧</button>
+                    <?php else: ?>
+                        <input type="number" class="aporte-input mono" min="0.01" step="0.01" placeholder="0.00"
+                               id="debito-monto-<?= esc($clienteUuid) ?>">
+                        <button class="btn-accion" title="Debitar monto adicional (transferencia ACH)"
+                                onclick="debitarExtra('<?= esc($clienteUuid) ?>','<?= esc((string)$debIdPago) ?>')">🏧</button>
+                    <?php endif; ?>
+                    </div>
                 <?php endif; ?>
                 </td>
 
@@ -1156,6 +1283,14 @@ header('Content-Type: text/html; charset=utf-8');
     <!-- ════════════════════════════════════════════════════════════
          MODAL ➕  Registrar dispositivo con cliente nuevo
     ════════════════════════════════════════════════════════════ -->
+    <div id="modal-devoluciones" class="modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal-box">
+            <button class="modal-close" onclick="cerrarModal('modal-devoluciones')" title="Cerrar">✕</button>
+            <h2 id="devol-modal-titulo">Devoluciones</h2>
+            <div id="devol-modal-contenido"></div>
+        </div>
+    </div>
+
     <div id="modal-registrar" class="modal-overlay" role="dialog" aria-modal="true">
         <div class="modal-box">
             <button class="modal-close" onclick="cerrarModal('modal-registrar')" title="Cerrar">✕</button>
@@ -1853,6 +1988,68 @@ header('Content-Type: text/html; charset=utf-8');
         }
     });
 
+    // ── Buscador de devoluciones por CI ──────────────────────────
+    async function buscarDevoluciones() {
+        const input = document.getElementById('devol-ci');
+        const btn   = document.getElementById('devol-btn');
+        const ci    = input.value.trim();
+        if (ci === '') {
+            alert('Ingresa el CI del cliente.');
+            input.focus();
+            return;
+        }
+
+        const titulo    = document.getElementById('devol-modal-titulo');
+        const contenido = document.getElementById('devol-modal-contenido');
+        btn.disabled = true;
+        try {
+            const res  = await fetch('/gyrosfe/api/devoluciones_buscar.php?ci=' + encodeURIComponent(ci));
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error ?? 'desconocido');
+
+            titulo.textContent = `Devoluciones · CI ${ci}`;
+            contenido.replaceChildren();
+
+            if (data.data.length === 0) {
+                const p = document.createElement('p');
+                p.style.color = '#9aa0b8';
+                p.textContent = 'No existe ningún registro de devolución para este CI.';
+                contenido.appendChild(p);
+            } else {
+                const columnas = [
+                    ['CÓDIGO',        d => d.codigo_cliente  ?? '—'],
+                    ['NOMBRE',        d => d.nombre_cliente  ?? '—'],
+                    ['MONTO',         d => fmtMoney(d.monto_a_devolver)],
+                    ['FECHA COBRO',   d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito.substring(0, 10)) : '—'],
+                    ['MODO',          d => d.modo_devolucion ?? '—'],
+                    ['ESTADO',        d => d.estado          ?? '—'],
+                ];
+                const wrap  = document.createElement('div');
+                wrap.className = 'pago-table-wrap';
+                const tabla = document.createElement('table');
+                tabla.className = 'pago-table';
+                const trHead = tabla.createTHead().insertRow();
+                columnas.forEach(([nombre]) => {
+                    const th = document.createElement('th');
+                    th.textContent = nombre;
+                    trHead.appendChild(th);
+                });
+                const tbody = tabla.createTBody();
+                data.data.forEach(d => {
+                    const tr = tbody.insertRow();
+                    columnas.forEach(([, valor]) => { tr.insertCell().textContent = valor(d); });
+                });
+                wrap.appendChild(tabla);
+                contenido.appendChild(wrap);
+            }
+            abrirModal('modal-devoluciones');
+        } catch (err) {
+            alert('Error al buscar devoluciones: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     // ── Modal ➕ Registrar ───────────────────────────────────────
     function abrirModalRegistrar(serial, dispositivo, agentId) {
         document.getElementById('reg-serial').value  = serial;
@@ -2379,6 +2576,60 @@ header('Content-Type: text/html; charset=utf-8');
                     }
                 });
             });
+            // Aceptar la devolución (DEV) de un débito: crea la fila en "devoluciones"
+            content.querySelectorAll('.btn-acepta-dev').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const fila  = this.closest('tr');
+                    const dev   = fila?.querySelector('.val-debito')?.textContent ?? 'DEV';
+                    if (!confirm(`¿Registrar la devolución (${dev})?`)) return;
+                    this.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('id_pago', this.dataset.id);
+                        const res  = await fetch('/gyrosfe/api/devolucion_crear.php', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.ok) {
+                            await cargarPagos(_regUuid);
+                        } else {
+                            alert('Error al registrar la devolución: ' + (data.error ?? 'desconocido'));
+                            this.disabled = false;
+                        }
+                    } catch(e) {
+                        alert('Error de red: ' + e.message);
+                        this.disabled = false;
+                    }
+                });
+            });
+            // Eventos en inputs de cuota editable
+            content.querySelectorAll('.pago-cuota-input').forEach(inp => {
+                inp.addEventListener('change', async function() {
+                    const cuota = parseFloat(this.value);
+                    if (isNaN(cuota) || cuota <= 0) {
+                        alert('Ingresa una cuota válida.');
+                        this.value = this.dataset.original;
+                        return;
+                    }
+                    this.classList.add('saving');
+                    try {
+                        const fd = new FormData();
+                        fd.append('id_pago', this.dataset.id);
+                        fd.append('cuota',   cuota.toFixed(2));
+                        const res  = await fetch('/gyrosfe/api/pago_cuota.php', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.ok) {
+                            await cargarPagos(_regUuid);
+                        } else {
+                            alert('Error al actualizar cuota: ' + (data.error ?? 'desconocido'));
+                            this.value = this.dataset.original;
+                            this.classList.remove('saving');
+                        }
+                    } catch(e) {
+                        alert('Error de red: ' + e.message);
+                        this.value = this.dataset.original;
+                        this.classList.remove('saving');
+                    }
+                });
+            });
         } catch(err) {
             loading.style.display = 'none';
             content.innerHTML = `<p style="color:#f87171;padding:20px">Error de red: ${err.message}</p>`;
@@ -2441,6 +2692,41 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
+            // TRANSF.: monto cobrado y, si hubo DEBITAR, tres filas: monto debitado, cuota a
+            // restar (editable hasta aceptar la devolución) y DEV = débito − cuota.
+            const cerrado      = !!c.nro_envio_transferencia;
+            const hayDebito    = c.debito != null;
+            const devAceptada  = c.devolucion_uuid != null;
+            const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
+            const debitoTitle  = hayDebito
+                ? `Débito · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra) : '—'}`
+                : '';
+            const cobroHtml = c.transferencia != null ? fmtMoney(c.transferencia) : '';
+            const debitoHtml = hayDebito
+                ? `<span title="${debitoTitle}">${fmtMoney(c.debito)}</span>` +
+                  `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01"` +
+                  ` title="${devAceptada ? 'Devolución registrada: cuota no editable' : 'Cuota a restar del débito'}"${devAceptada ? ' disabled' : ''}` +
+                  ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">` +
+                  `<br><span class="val-debito">DEV ${fmtMoney(c.dev)}</span>`
+                : '';
+            const transfHtml = [cobroHtml, debitoHtml].filter(Boolean).join('<br>') || '—';
+
+            let accionHtml;
+            if (hayDebito && !devAceptada) {
+                accionHtml = `<button class="btn-accion btn-acepta-dev" data-id="${c.id_pago}"
+                        title="Aceptar y registrar la devolución">✅</button>`;
+            } else if (devAceptada) {
+                accionHtml = `<span class="pago-cerrado" title="Devolución registrada">🔒</span>`;
+            } else if (cerrado) {
+                accionHtml = `<span class="pago-cerrado" title="Mes cobrado y cerrado">🔒</span>`;
+            } else {
+                accionHtml = `<button class="btn-accion btn-reg-pago"
+                        data-id="${c.id_pago}"
+                        data-fecha="${c.fecha_pago ?? ''}"
+                        data-estado="${calcEstado(c)}"
+                        title="Registrar pago">💸</button>`;
+            }
+
             const saldoFin   = parseFloat(c.saldo_deudor ?? 0).toFixed(2);
             const fechaVal   = c.fecha_pago      ? c.fecha_pago.substring(0, 10)      : '';
             const fechaDebito = c.fecha_de_debito ? c.fecha_de_debito.substring(0, 10) : null;
@@ -2459,16 +2745,10 @@ header('Content-Type: text/html; charset=utf-8');
                 <td>${saldoHtml}</td>
                 <td style="text-align:center">${diasHtml}</td>
                 <td>${fmtMoney(c.saldo_inicial)} / Bs ${saldoFin}</td>
-                <td>${c.transferencia != null ? fmtMoney(c.transferencia) : '—'}</td>
+                <td>${transfHtml}</td>
                 <td class="mono">${c.nro_envio_transferencia ?? '—'}</td>
                 <td class="${estadoClass(calcEstado(c))}">${estadoLabel(calcEstado(c))}</td>
-                <td style="text-align:center">
-                    <button class="btn-accion btn-reg-pago"
-                        data-id="${c.id_pago}"
-                        data-fecha="${c.fecha_pago ?? ''}"
-                        data-estado="${calcEstado(c)}"
-                        title="Registrar pago">💸</button>
-                </td>
+                <td style="text-align:center">${accionHtml}</td>
             </tr>`;
         }).join('');
 
@@ -2618,61 +2898,72 @@ header('Content-Type: text/html; charset=utf-8');
         return res.json();
     }
 
+    async function postDebitar(idPago, monto, tipo) {
+        const fd = new FormData();
+        fd.append('id_pago', idPago);
+        fd.append('monto', monto.toFixed(2));
+        fd.append('tipo', tipo);
+        const ctrl = new AbortController();
+        const tout = setTimeout(() => ctrl.abort(), 300000);
+        const res  = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
+        clearTimeout(tout);
+        return res.json();
+    }
+
+    function aporteResultadoHtml(etiqueta, data) {
+        return `<span class="aporte-etiqueta">${etiqueta} : Bs.</span>` +
+            `<span class="aporte-estado">` +
+                `<span style="color:#34d399;font-weight:700">${parseFloat(data.monto).toFixed(2)}</span>` +
+                (data.dev != null ? ` <span class="val-debito">DEV ${parseFloat(data.dev).toFixed(2)}</span>` : '') +
+                `<div class="small mono" style="color:#9aa0b8">N° ${data.numero_envio}</div>` +
+            `</span>`;
+    }
+
     async function debitarCliente(uuid, idPago) {
-        const cell      = document.getElementById(`debitar-cell-${uuid}`);
-        const saldoCell = document.getElementById(`saldo-cell-${uuid}`);
-        const montoSpan = document.getElementById(`debitar-monto-${uuid}`);
-        const btn       = cell ? cell.querySelector('button') : null;
-        const monto     = parseFloat(montoSpan?.dataset.monto ?? '0');
+        const cell       = document.getElementById(`debitar-cell-${uuid}`);
+        const row        = document.getElementById(`cobrar-row-${uuid}`);
+        const saldoCell  = document.getElementById(`saldo-cell-${uuid}`);
+        const montoInput = document.getElementById(`cobrar-monto-${uuid}`);
+        const monto      = parseFloat(montoInput?.value ?? '');
 
         if (!monto || monto <= 0) {
-            alert('No hay un monto de cuota válido para debitar.');
+            alert('El monto a transferir no puede ser cero.');
+            montoInput?.focus();
             return;
         }
-        if (!confirm(`¿Confirmas debitar Bs. ${monto.toFixed(2)} a la cuenta oficina? Se consultará el saldo antes y después. Esta acción no se puede revertir.`)) {
+        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
             return;
         }
 
         let secs = 0;
         let fase = 'Consultando saldo (antes)';
-        if (btn) { btn.disabled = true; btn.style.opacity = '0.4'; }
-        const originalDebitar = cell      ? cell.innerHTML      : '';
-        const originalSaldo   = saldoCell ? saldoCell.innerHTML : '';
+        const originalCobrar = row       ? row.innerHTML       : '';
+        const originalSaldo  = saldoCell ? saldoCell.innerHTML : '';
         const renderProgreso = () => {
             const html = `<span style="color:#9aa0b8;font-size:.78rem">${fase}… ${secs}s</span>`;
-            if (cell)      cell.innerHTML      = html;
+            if (row)       row.innerHTML       = `<span class="aporte-etiqueta">COBRAR : Bs.</span><span class="aporte-estado">${html}</span>`;
             if (saldoCell) saldoCell.innerHTML = html;
         };
+        cell?.classList.add('aporte-ocupado');
         renderProgreso();
         const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
 
         try {
-            // 1) Saldo ANTES del débito
+            // 1) Saldo ANTES del cobro
             const antes = await consultaSaldoLigada(uuid, idPago, 'antes');
             if (!antes.ok) throw new Error('Saldo (antes): ' + (antes.error ?? 'desconocido'));
 
-            // 2) Débito ACH
-            fase = 'Debitando';
-            const fd = new FormData();
-            fd.append('id_pago', idPago);
-            fd.append('monto', monto.toFixed(2));
-            const ctrl = new AbortController();
-            const tout = setTimeout(() => ctrl.abort(), 300000);
-            const res  = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
-            clearTimeout(tout);
-            const data = await res.json();
-            if (!data.ok) throw new Error('Débito: ' + (data.error ?? 'desconocido'));
+            // 2) Cobro ACH
+            fase = 'Cobrando';
+            const data = await postDebitar(idPago, monto, 'cobrar');
+            if (!data.ok) throw new Error('Cobro: ' + (data.error ?? 'desconocido'));
 
-            // 3) Saldo DESPUÉS del débito
+            // 3) Saldo DESPUÉS del cobro
             fase = 'Consultando saldo (después)';
             const despues = await consultaSaldoLigada(uuid, idPago, 'despues');
             if (!despues.ok) throw new Error('Saldo (después): ' + (despues.error ?? 'desconocido'));
 
-            if (cell) {
-                cell.innerHTML =
-                    `<span style="color:#34d399;font-weight:700">Bs. ${parseFloat(data.monto).toFixed(2)}</span>` +
-                    `<div class="small mono" style="color:#9aa0b8;margin-top:2px">N° ${data.numero_envio}</div>`;
-            }
+            if (row) row.innerHTML = aporteResultadoHtml('COBRAR', data);
             if (saldoCell) {
                 const fechaFmt = despues.fecha_hora
                     ? new Date(despues.fecha_hora).toLocaleString('es-BO', {
@@ -2686,12 +2977,59 @@ header('Content-Type: text/html; charset=utf-8');
                     `<div class="small mono" style="color:#7b93ff;margin-top:2px">${parseFloat(antes.saldo).toFixed(2)} → ${parseFloat(despues.saldo).toFixed(2)}</div>`;
             }
         } catch (err) {
-            if (cell)      cell.innerHTML      = originalDebitar;
+            if (row) {
+                row.innerHTML = originalCobrar;
+                const restaurado = document.getElementById(`cobrar-monto-${uuid}`);
+                if (restaurado) restaurado.value = monto.toFixed(2);
+            }
             if (saldoCell) saldoCell.innerHTML = originalSaldo;
+            alert('Error al cobrar: ' + err.message);
+        } finally {
+            clearInterval(timer);
+            cell?.classList.remove('aporte-ocupado');
+        }
+    }
+
+    // ── Débito adicional: se registra en la cuota, no la marca como pagada ──
+    async function debitarExtra(uuid, idPago) {
+        const cell       = document.getElementById(`debitar-cell-${uuid}`);
+        const row        = document.getElementById(`debito-row-${uuid}`);
+        const montoInput = document.getElementById(`debito-monto-${uuid}`);
+        const monto      = parseFloat(montoInput?.value ?? '');
+
+        if (!monto || monto <= 0) {
+            alert('El monto a transferir no puede ser cero.');
+            montoInput?.focus();
+            return;
+        }
+        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
+            return;
+        }
+
+        let secs = 0;
+        const originalDebito = row ? row.innerHTML : '';
+        const renderProgreso = () => {
+            if (row) row.innerHTML = `<span class="aporte-etiqueta">DEBITAR : Bs.</span>` +
+                `<span class="aporte-estado" style="color:#9aa0b8;font-size:.78rem">Debitando… ${secs}s</span>`;
+        };
+        cell?.classList.add('aporte-ocupado');
+        renderProgreso();
+        const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
+
+        try {
+            const data = await postDebitar(idPago, monto, 'debito');
+            if (!data.ok) throw new Error(data.error ?? 'desconocido');
+            if (row) row.innerHTML = aporteResultadoHtml('DEBITAR', data);
+        } catch (err) {
+            if (row) {
+                row.innerHTML = originalDebito;
+                const restaurado = document.getElementById(`debito-monto-${uuid}`);
+                if (restaurado) restaurado.value = monto.toFixed(2);
+            }
             alert('Error al debitar: ' + err.message);
         } finally {
             clearInterval(timer);
-            if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+            cell?.classList.remove('aporte-ocupado');
         }
     }
 
