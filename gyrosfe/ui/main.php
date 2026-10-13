@@ -443,11 +443,13 @@ header('Content-Type: text/html; charset=utf-8');
             padding: 3px 6px;
             text-align: right;
             font-size: .82rem;
-            color: #e0e4f0;
+            font-weight: 600;
+            color: #1a3fc4;
             background: rgba(255,255,255,.05);
             border: 1px solid #2a2f45;
             border-radius: 6px;
         }
+        .aporte-input::placeholder { color: #9aa0b8; font-weight: 400; }
         .aporte-input:disabled { opacity: .45; }
         .aporte-ocupado .aporte-input,
         .aporte-ocupado .btn-accion { pointer-events: none; opacity: .4; }
