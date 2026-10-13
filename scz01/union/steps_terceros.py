@@ -31,9 +31,10 @@ MENU_ADMINISTRACION_CUENTAS = "Administración de Cuentas"
 
 TEXTO_CLAVE_TRANSACCIONAL = "Clave Transaccional"
 
-# La app recorta el nombre del titular (26 caracteres vistos), asi que se
-# compara por prefijo y se exige un minimo para que el prefijo sea significativo.
-_MIN_PREFIJO_TITULAR = 10
+# La app muestra al titular con los apellidos primero y recorta el nombre (26
+# caracteres vistos), asi que se compara palabra por palabra, sin orden y por
+# prefijo, y se exige un minimo de palabras para que la coincidencia signifique algo.
+_MIN_PALABRAS_TITULAR = 2
 
 _ETIQUETAS_COMPROBANTE = ("envio", "envío", "transaccion", "transacción", "operacion", "operación", "comprobante")
 
@@ -76,11 +77,11 @@ def _cuenta_destino_en_formulario(d: u2.Device) -> str:
 
 
 def _titular_coincide(mostrado: str, esperado: str) -> bool:
-    mostrado = mostrado.strip().upper()
-    esperado = esperado.strip().upper()
-    if len(mostrado) < _MIN_PREFIJO_TITULAR:
+    palabras_mostradas = mostrado.upper().split()
+    palabras_esperadas = esperado.upper().split()
+    if len(palabras_mostradas) < _MIN_PALABRAS_TITULAR:
         return False
-    return esperado.startswith(mostrado) or mostrado.startswith(esperado)
+    return all(any(e.startswith(m) for e in palabras_esperadas) for m in palabras_mostradas)
 
 
 # ---------------------------------------------------------------------------
