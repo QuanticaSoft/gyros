@@ -12,7 +12,7 @@
 -- principal de ui/main.php lee "debito".
 -- Ejecutar manualmente via psql (ver 2026_agent_tunnel_port.sql).
 --
--- Aplicado: (pendiente)
+-- Aplicado: 2026-10-13.
 
 -- UP
 ALTER TABLE "pago"
