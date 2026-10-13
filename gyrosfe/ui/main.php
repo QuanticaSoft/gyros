@@ -106,7 +106,7 @@ LEFT JOIN LATERAL (
         pg.id_pago,
         pg.fecha_pago,
         pg.mes,
-        COALESCE(pg.cuota_editada, pg.cuota_fija) AS cuota_fija,
+        pg.cuota_fija,
         pg.debito,
         EXTRACT(DAY FROM pr.fecha_prestamo)::int AS dia_prestamo,
         CASE
@@ -2576,6 +2576,30 @@ header('Content-Type: text/html; charset=utf-8');
                     }
                 });
             });
+            // Aceptar la devolución (DEV) de un débito: crea la fila en "devoluciones"
+            content.querySelectorAll('.btn-acepta-dev').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const fila  = this.closest('tr');
+                    const dev   = fila?.querySelector('.val-debito')?.textContent ?? 'DEV';
+                    if (!confirm(`¿Registrar la devolución (${dev})?`)) return;
+                    this.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('id_pago', this.dataset.id);
+                        const res  = await fetch('/gyrosfe/api/devolucion_crear.php', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.ok) {
+                            await cargarPagos(_regUuid);
+                        } else {
+                            alert('Error al registrar la devolución: ' + (data.error ?? 'desconocido'));
+                            this.disabled = false;
+                        }
+                    } catch(e) {
+                        alert('Error de red: ' + e.message);
+                        this.disabled = false;
+                    }
+                });
+            });
             // Eventos en inputs de cuota editable
             content.querySelectorAll('.pago-cuota-input').forEach(inp => {
                 inp.addEventListener('change', async function() {
@@ -2668,30 +2692,40 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // CUOTA FIJA: el cobro no la altera. Solo si hubo DEBITAR se agregan debajo la
-            // cuota (editable hasta que el mes se cobra) y DEV (débito − cuota).
-            const debitoTitle = c.debito != null
-                ? `Débito ${fmtMoney(c.debito)} · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
+            // TRANSF.: monto cobrado y, si hubo DEBITAR, tres filas: monto debitado, cuota a
+            // restar (editable hasta aceptar la devolución) y DEV = débito − cuota.
+            const cerrado      = !!c.nro_envio_transferencia;
+            const hayDebito    = c.debito != null;
+            const devAceptada  = c.devolucion_uuid != null;
+            const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
+            const debitoTitle  = hayDebito
+                ? `Débito · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra) : '—'}`
                 : '';
-            const cerrado = !!c.nro_envio_transferencia;
-            const pagado  = c.estado === 'pagado';
-            const cuotaRef = parseFloat(
-                pagado && c.transferencia != null ? c.transferencia : (c.cuota_editada ?? c.cuota_fija)
-            ).toFixed(2);
-            const cuotaHtml = c.debito != null
-                ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span>` +
+            const cobroHtml = c.transferencia != null ? fmtMoney(c.transferencia) : '';
+            const debitoHtml = hayDebito
+                ? `<span title="${debitoTitle}">${fmtMoney(c.debito)}</span>` +
                   `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01"` +
-                  ` title="${pagado ? 'Mes cobrado: cuota no editable' : 'Cuota editable'}"${pagado ? ' disabled' : ''}` +
-                  ` data-id="${c.id_pago}" data-original="${cuotaRef}" value="${cuotaRef}">` +
-                  `<br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
-                : fmtMoney(c.cuota_fija);
-            const accionHtml = cerrado
-                ? `<span class="pago-cerrado" title="Mes cobrado y cerrado">🔒</span>`
-                : `<button class="btn-accion btn-reg-pago"
+                  ` title="${devAceptada ? 'Devolución registrada: cuota no editable' : 'Cuota a restar del débito'}"${devAceptada ? ' disabled' : ''}` +
+                  ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">` +
+                  `<br><span class="val-debito">DEV ${fmtMoney(c.dev)}</span>`
+                : '';
+            const transfHtml = [cobroHtml, debitoHtml].filter(Boolean).join('<br>') || '—';
+
+            let accionHtml;
+            if (hayDebito && !devAceptada) {
+                accionHtml = `<button class="btn-accion btn-acepta-dev" data-id="${c.id_pago}"
+                        title="Aceptar y registrar la devolución">✅</button>`;
+            } else if (devAceptada) {
+                accionHtml = `<span class="pago-cerrado" title="Devolución registrada">🔒</span>`;
+            } else if (cerrado) {
+                accionHtml = `<span class="pago-cerrado" title="Mes cobrado y cerrado">🔒</span>`;
+            } else {
+                accionHtml = `<button class="btn-accion btn-reg-pago"
                         data-id="${c.id_pago}"
                         data-fecha="${c.fecha_pago ?? ''}"
                         data-estado="${calcEstado(c)}"
                         title="Registrar pago">💸</button>`;
+            }
 
             const saldoFin   = parseFloat(c.saldo_deudor ?? 0).toFixed(2);
             const fechaVal   = c.fecha_pago      ? c.fecha_pago.substring(0, 10)      : '';
@@ -2705,13 +2739,13 @@ header('Content-Type: text/html; charset=utf-8');
                     <input type="date" class="pago-fecha-input" data-id="${c.id_pago}" value="${fechaVal}">
                     ${fechaDebitoHtml}
                 </td>
-                <td>${cuotaHtml}</td>
+                <td>${fmtMoney(c.cuota_fija)}</td>
                 <td>${interesHtml}</td>
                 <td>${capitalHtml}</td>
                 <td>${saldoHtml}</td>
                 <td style="text-align:center">${diasHtml}</td>
                 <td>${fmtMoney(c.saldo_inicial)} / Bs ${saldoFin}</td>
-                <td>${c.transferencia != null ? fmtMoney(c.transferencia) : '—'}</td>
+                <td>${transfHtml}</td>
                 <td class="mono">${c.nro_envio_transferencia ?? '—'}</td>
                 <td class="${estadoClass(calcEstado(c))}">${estadoLabel(calcEstado(c))}</td>
                 <td style="text-align:center">${accionHtml}</td>
@@ -2744,7 +2778,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <thead><tr>
                         <th>MES</th>
                         <th>FECHA PAGO <span class="th-pr">P/R</span></th>
-                        <th>CUOTA FIJA <span class="th-pr">P/E</span></th>
+                        <th>CUOTA FIJA</th>
                         <th>INTERÉS <span class="th-pr">P/R</span></th>
                         <th>CAPITAL <span class="th-pr">P/R</span></th>
                         <th>SALDO <span class="th-pr">P/R</span></th>
@@ -2864,12 +2898,11 @@ header('Content-Type: text/html; charset=utf-8');
         return res.json();
     }
 
-    async function postDebitar(idPago, monto, tipo, cuota = null) {
+    async function postDebitar(idPago, monto, tipo) {
         const fd = new FormData();
         fd.append('id_pago', idPago);
         fd.append('monto', monto.toFixed(2));
         fd.append('tipo', tipo);
-        if (cuota !== null) fd.append('cuota', cuota.toFixed(2));
         const ctrl = new AbortController();
         const tout = setTimeout(() => ctrl.abort(), 300000);
         const res  = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
@@ -2963,25 +2996,13 @@ header('Content-Type: text/html; charset=utf-8');
         const row        = document.getElementById(`debito-row-${uuid}`);
         const montoInput = document.getElementById(`debito-monto-${uuid}`);
         const monto      = parseFloat(montoInput?.value ?? '');
-        // Cuota vigente en la fila COBRAR; si ya no hay campo, el backend usa la cuota fija
-        const cuotaInput = document.getElementById(`cobrar-monto-${uuid}`);
-        let cuota = null;
-        if (cuotaInput) {
-            cuota = parseFloat(cuotaInput.value);
-            if (isNaN(cuota) || cuota < 0) {
-                alert('Ingresa una cuota válida en COBRAR para calcular DEV.');
-                return;
-            }
-        }
 
         if (!monto || monto <= 0) {
-            alert('Ingresa un monto válido para debitar.');
+            alert('El monto a transferir no puede ser cero.');
+            montoInput?.focus();
             return;
         }
-        const avisoDev = cuota !== null
-            ? `\n\nDEV = ${monto.toFixed(2)} − ${cuota.toFixed(2)} = Bs. ${(monto - cuota).toFixed(2)}`
-            : '';
-        if (!confirm(`¿Confirmas debitar Bs. ${monto.toFixed(2)} a la cuenta oficina? Esta acción no se puede revertir.${avisoDev}`)) {
+        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
             return;
         }
 
@@ -2996,7 +3017,7 @@ header('Content-Type: text/html; charset=utf-8');
         const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
 
         try {
-            const data = await postDebitar(idPago, monto, 'debito', cuota);
+            const data = await postDebitar(idPago, monto, 'debito');
             if (!data.ok) throw new Error(data.error ?? 'desconocido');
             if (row) row.innerHTML = aporteResultadoHtml('DEBITAR', data);
         } catch (err) {

@@ -23,7 +23,7 @@ $cuota = number_format((float) $cuota, 2, '.', '');
 try {
     $pdo = db_connect();
 
-    $stmtPago = $pdo->prepare('SELECT "estado", "debito" FROM "pago" WHERE "id_pago" = :id');
+    $stmtPago = $pdo->prepare('SELECT "debito", "devolucion_uuid" FROM "pago" WHERE "id_pago" = :id');
     $stmtPago->execute([':id' => $idPago]);
     $pago = $stmtPago->fetch(PDO::FETCH_ASSOC);
 
@@ -31,13 +31,13 @@ try {
         echo json_encode(['ok' => false, 'error' => 'Pago no encontrado']);
         exit;
     }
-    // La cuota solo es editable entre el DEBITAR y el COBRAR: una vez cobrada vale el monto cobrado.
-    if ($pago['estado'] === 'pagado') {
-        echo json_encode(['ok' => false, 'error' => 'La cuota ya fue cobrada: no se puede editar']);
-        exit;
-    }
+    // La cuota solo es editable entre el DEBITAR y la aceptación de su devolución
     if ($pago['debito'] === null) {
         echo json_encode(['ok' => false, 'error' => 'La cuota no tiene débito registrado']);
+        exit;
+    }
+    if ($pago['devolucion_uuid'] !== null) {
+        echo json_encode(['ok' => false, 'error' => 'La devolución ya fue registrada: no se puede editar']);
         exit;
     }
 

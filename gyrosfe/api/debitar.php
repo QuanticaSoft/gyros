@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $idPago = trim((string) ($_POST['id_pago'] ?? ''));
 $monto  = trim((string) ($_POST['monto']   ?? ''));
 $tipo   = trim((string) ($_POST['tipo']    ?? 'cobrar'));
-$cuota  = trim((string) ($_POST['cuota']   ?? ''));
 
 if ($idPago === '' || $monto === '') {
     jsonErr('Parámetros requeridos: id_pago, monto');
@@ -34,9 +33,6 @@ if (!is_numeric($monto)) {
 $monto = number_format((float) $monto, 2, '.', '');
 if ((float) $monto <= 0) {
     jsonErr('Monto inválido');
-}
-if ($cuota !== '' && (!is_numeric($cuota) || (float) $cuota < 0)) {
-    jsonErr('Cuota inválida');
 }
 
 require_once __DIR__ . '/../lib/db_connect.php';
@@ -52,7 +48,6 @@ try {
     $stmtPago = $pdo->prepare('
         SELECT pg."id_pago", pg."fecha_pago", pg."nro_envio_transferencia",
                pg."debito", pg."nro_envio_debito", pg."cuota_editada",
-               pg."estado", pg."transferencia",
                pg."mes", pg."saldo_inicial", pg."cuota_fija",
                pg."prestamoIdPrestamo",
                pr."clienteIdCliente" AS uuid,
@@ -156,15 +151,8 @@ try {
 
     if ($tipo === 'debito') {
         // El débito adicional solo se registra: no cambia estado ni amortización.
-        // Cuota de referencia: el monto cobrado si la cuota ya se cobró; si no, la del
-        // campo COBRAR del dashboard y, en su defecto, la vigente de la cuota.
-        if ($pago['estado'] === 'pagado' && $pago['transferencia'] !== null) {
-            $cuotaRef = (float) $pago['transferencia'];
-        } elseif ($cuota !== '') {
-            $cuotaRef = (float) $cuota;
-        } else {
-            $cuotaRef = (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
-        }
+        // DEV parte de la cuota fija; el operador puede ajustarla luego en el modal Pagos.
+        $cuotaRef = (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
         $dev      = number_format((float) $monto - $cuotaRef, 2, '.', '');
 
         $stmtDeb = $pdo->prepare('
@@ -228,14 +216,12 @@ try {
             "interes_real"            = :interesreal,
             "capital_real"            = :capitalreal,
             "saldo_deudor_real"       = :saldoreal,
-            "dev"                     = CASE WHEN "debito" IS NOT NULL THEN "debito" - :montodev ELSE "dev" END,
             "updated_at"              = NOW()
         WHERE "id_pago" = :id
     ');
     $stmtUpd->execute([
         ':nro'         => $numeroEnvio,
         ':monto'       => $monto,
-        ':montodev'    => $monto,
         ':id'          => $idPago,
         ':diasreal'    => $diasReal,
         ':interesreal' => $interesReal,
