@@ -7,9 +7,9 @@ require_once __DIR__ . '/../lib/db_connect.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-$ci = trim((string) ($_GET['ci'] ?? ''));
-if ($ci === '') {
-    echo json_encode(['ok' => false, 'error' => 'ci requerido']);
+$q = trim((string) ($_GET['q'] ?? ''));
+if ($q === '') {
+    echo json_encode(['ok' => false, 'error' => 'CI o código requerido']);
     exit;
 }
 
@@ -20,9 +20,10 @@ try {
                 monto_a_devolver, fecha_cobro_debito, modo_devolucion, estado
          FROM devoluciones
          WHERE trim(ci_cliente) = :ci
+            OR lower(trim(codigo_cliente)) = lower(:codigo)
          ORDER BY fecha_cobro_debito DESC NULLS LAST'
     );
-    $stmt->execute([':ci' => $ci]);
+    $stmt->execute([':ci' => $q, ':codigo' => $q]);
     echo json_encode(['ok' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
 } catch (Throwable $e) {
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

@@ -60,6 +60,8 @@ SELECT
   cl."isActive"                            AS cl_activo,
   cl.garantenombre                         AS cl_garantenombre,
   cl.garantecelular                        AS cl_garantecelular,
+  cl.garante2nombre                        AS cl_garante2nombre,
+  cl.garante2celular                       AS cl_garante2celular,
   cl.observaciones                         AS cl_observaciones,
   cl.fecharegistro                         AS cl_fecharegistro,
 
@@ -426,9 +428,9 @@ header('Content-Type: text/html; charset=utf-8');
         /* ── Columna Aporte: filas COBRAR / DEBITAR ────────────── */
         .aporte-fila {
             display: grid;
-            grid-template-columns: 92px 84px 34px;
+            grid-template-columns: 92px 98px 34px;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             min-height: 30px;
             font-size: .78rem;
             color: #9aa0b8;
@@ -437,15 +439,18 @@ header('Content-Type: text/html; charset=utf-8');
         .aporte-fila .aporte-etiqueta { text-align: right; letter-spacing: .03em; }
         .aporte-fila .aporte-estado   { grid-column: 2 / 4; text-align: left; }
         .aporte-input {
+            box-sizing: border-box;
             width: 100%;
             padding: 3px 6px;
             text-align: right;
             font-size: .82rem;
-            color: #e0e4f0;
+            font-weight: 600;
+            color: #1a3fc4;
             background: rgba(255,255,255,.05);
             border: 1px solid #2a2f45;
             border-radius: 6px;
         }
+        .aporte-input::placeholder { color: #9aa0b8; font-weight: 400; }
         .aporte-input:disabled { opacity: .45; }
         .aporte-ocupado .aporte-input,
         .aporte-ocupado .btn-accion { pointer-events: none; opacity: .4; }
@@ -965,14 +970,16 @@ header('Content-Type: text/html; charset=utf-8');
 
     <!-- Buscar -->
     <div class="toolbar">
+        <!-- Buscador general oculto a pedido; filterRows() tolera su ausencia.
         <input id="q" type="search" placeholder="Buscar por agente, serial, dispositivo, cliente..." oninput="filterRows()" />
+        -->
         <a href="" title="Refrescar">Refrescar</a>
         <span class="badge-online"><?= count($usbRows) ?> online</span>
         <div class="devol-buscador">
             <span class="devol-titulo">Devoluciones</span>
             <div class="devol-caja">
-                <button type="button" id="devol-btn" title="Buscar devoluciones por CI" onclick="buscarDevoluciones()">🔍</button>
-                <input id="devol-ci" type="search" placeholder="CI Cliente"
+                <button type="button" id="devol-btn" title="Buscar devoluciones por CI o código" onclick="buscarDevoluciones()">🔍</button>
+                <input id="devol-ci" type="search" placeholder="CI o Código"
                        onkeydown="if (event.key === 'Enter') buscarDevoluciones()" />
             </div>
         </div>
@@ -1044,6 +1051,8 @@ header('Content-Type: text/html; charset=utf-8');
             $clActivoVal     = !empty($r['cl_activo']) ? '1' : '0';
             $clGaranteNombre = esc((string) ($r['cl_garantenombre'] ?? ''));
             $clGaranteCel    = esc((string) ($r['cl_garantecelular']?? ''));
+            $clGarante2Nombre = esc((string) ($r['cl_garante2nombre']  ?? ''));
+            $clGarante2Cel    = esc((string) ($r['cl_garante2celular'] ?? ''));
             $clObservaciones = esc((string) ($r['cl_observaciones'] ?? ''));
             $clFecha         = !empty($r['cl_fecharegistro'])
                 ? (new DateTimeImmutable($r['cl_fecharegistro'], new DateTimeZone('UTC')))->format('Y-m-d H:i')
@@ -1235,6 +1244,8 @@ header('Content-Type: text/html; charset=utf-8');
                                 'activo'         => !empty($r['cl_activo']),
                                 'garantenombre'  => $r['cl_garantenombre']  ?? '',
                                 'garantecelular' => $r['cl_garantecelular'] ?? '',
+                                'garante2nombre'  => $r['cl_garante2nombre']  ?? '',
+                                'garante2celular' => $r['cl_garante2celular'] ?? '',
                                 'observaciones'  => $r['cl_observaciones']  ?? '',
                                 'fecharegistro'  => $clFecha,
                                 'serial'         => $r['ev_serial']         ?? '',
@@ -1260,6 +1271,8 @@ header('Content-Type: text/html; charset=utf-8');
                                 '<?= $clActivo ?>',
                                 '<?= addslashes($clGaranteNombre) ?>',
                                 '<?= $clGaranteCel ?>',
+                                '<?= addslashes($clGarante2Nombre) ?>',
+                                '<?= $clGarante2Cel ?>',
                                 '<?= addslashes($clObservaciones) ?>',
                                 '<?= $clFecha ?>'
                             )"
@@ -1339,16 +1352,29 @@ header('Content-Type: text/html; charset=utf-8');
                     </div>
                 </div>
 
-                <div class="form-section">GARANTE</div>
+                <div class="form-section">GARANTE 1</div>
 
                 <div class="form-row col2">
                     <div>
-                        <label>Nombre Completo *</label>
-                        <input type="text" id="reg-garantenombre" name="garantenombre" required maxlength="255" placeholder="Ej: María López">
+                        <label>Nombre Completo</label>
+                        <input type="text" id="reg-garantenombre" name="garantenombre" maxlength="255" placeholder="Ej: María López">
                     </div>
                     <div>
-                        <label>Celular *</label>
-                        <input type="text" id="reg-garantecelular" name="garantecelular" required maxlength="20" placeholder="Ej: 69987654">
+                        <label>Celular</label>
+                        <input type="text" id="reg-garantecelular" name="garantecelular" maxlength="20" placeholder="Ej: 69987654">
+                    </div>
+                </div>
+
+                <div class="form-section">GARANTE 2</div>
+
+                <div class="form-row col2">
+                    <div>
+                        <label>Nombre Completo</label>
+                        <input type="text" id="reg-garante2nombre" name="garante2nombre" maxlength="255" placeholder="Ej: Juan Pérez">
+                    </div>
+                    <div>
+                        <label>Celular</label>
+                        <input type="text" id="reg-garante2celular" name="garante2celular" maxlength="20" placeholder="Ej: 69987654">
                     </div>
                 </div>
 
@@ -1431,16 +1457,29 @@ header('Content-Type: text/html; charset=utf-8');
                     </div>
                 </div>
 
-                <div class="form-section">GARANTE</div>
+                <div class="form-section">GARANTE 1</div>
 
                 <div class="form-row col2">
                     <div>
-                        <label>Nombre Completo *</label>
-                        <input type="text" id="edit-garantenombre" name="garantenombre" required maxlength="255">
+                        <label>Nombre Completo</label>
+                        <input type="text" id="edit-garantenombre" name="garantenombre" maxlength="255">
                     </div>
                     <div>
-                        <label>Celular *</label>
-                        <input type="text" id="edit-garantecelular" name="garantecelular" required maxlength="20">
+                        <label>Celular</label>
+                        <input type="text" id="edit-garantecelular" name="garantecelular" maxlength="20">
+                    </div>
+                </div>
+
+                <div class="form-section">GARANTE 2</div>
+
+                <div class="form-row col2">
+                    <div>
+                        <label>Nombre Completo</label>
+                        <input type="text" id="edit-garante2nombre" name="garante2nombre" maxlength="255">
+                    </div>
+                    <div>
+                        <label>Celular</label>
+                        <input type="text" id="edit-garante2celular" name="garante2celular" maxlength="20">
                     </div>
                 </div>
 
@@ -1548,8 +1587,8 @@ header('Content-Type: text/html; charset=utf-8');
                         </div>
                     </div>
 
-                    <!-- Garante -->
-                    <div class="gen-section">Garante</div>
+                    <!-- Garantes -->
+                    <div class="gen-section">Garante 1</div>
                     <div class="gen-grid">
                         <div class="gen-cell">
                             <label>Nombre Completo</label>
@@ -1558,6 +1597,17 @@ header('Content-Type: text/html; charset=utf-8');
                         <div class="gen-cell">
                             <label>Celular</label>
                             <p id="gen-garantecelular"></p>
+                        </div>
+                    </div>
+                    <div class="gen-section">Garante 2</div>
+                    <div class="gen-grid">
+                        <div class="gen-cell">
+                            <label>Nombre Completo</label>
+                            <p id="gen-garante2nombre"></p>
+                        </div>
+                        <div class="gen-cell">
+                            <label>Celular</label>
+                            <p id="gen-garante2celular"></p>
                         </div>
                     </div>
 
@@ -1803,7 +1853,7 @@ header('Content-Type: text/html; charset=utf-8');
     <script>
     // ── Filtro de búsqueda ───────────────────────────────────────
     function filterRows() {
-        const q       = document.getElementById('q').value.toLowerCase().trim();
+        const q       = (document.getElementById('q')?.value ?? '').toLowerCase().trim();
         const sector  = document.getElementById('fil-sector').value;
         const estado  = document.getElementById('fil-estado').value;
         const rows    = document.querySelectorAll('#tbl tbody tr');
@@ -1988,13 +2038,13 @@ header('Content-Type: text/html; charset=utf-8');
         }
     });
 
-    // ── Buscador de devoluciones por CI ──────────────────────────
+    // ── Buscador de devoluciones por CI o código ─────────────────
     async function buscarDevoluciones() {
         const input = document.getElementById('devol-ci');
         const btn   = document.getElementById('devol-btn');
-        const ci    = input.value.trim();
-        if (ci === '') {
-            alert('Ingresa el CI del cliente.');
+        const q     = input.value.trim();
+        if (q === '') {
+            alert('Ingresa el CI o el código del cliente.');
             input.focus();
             return;
         }
@@ -2003,22 +2053,23 @@ header('Content-Type: text/html; charset=utf-8');
         const contenido = document.getElementById('devol-modal-contenido');
         btn.disabled = true;
         try {
-            const res  = await fetch('/gyrosfe/api/devoluciones_buscar.php?ci=' + encodeURIComponent(ci));
+            const res  = await fetch('/gyrosfe/api/devoluciones_buscar.php?q=' + encodeURIComponent(q));
             const data = await res.json();
             if (!data.ok) throw new Error(data.error ?? 'desconocido');
 
-            titulo.textContent = `Devoluciones · CI ${ci}`;
+            titulo.textContent = `Devoluciones · ${q}`;
             contenido.replaceChildren();
 
             if (data.data.length === 0) {
                 const p = document.createElement('p');
                 p.style.color = '#9aa0b8';
-                p.textContent = 'No existe ningún registro de devolución para este CI.';
+                p.textContent = 'No existe ningún registro de devolución para este CI o código.';
                 contenido.appendChild(p);
             } else {
                 const columnas = [
                     ['CÓDIGO',        d => d.codigo_cliente  ?? '—'],
                     ['NOMBRE',        d => d.nombre_cliente  ?? '—'],
+                    ['CI',            d => d.ci_cliente      ?? '—'],
                     ['MONTO',         d => fmtMoney(d.monto_a_devolver)],
                     ['FECHA COBRO',   d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito.substring(0, 10)) : '—'],
                     ['MODO',          d => d.modo_devolucion ?? '—'],
@@ -2088,7 +2139,7 @@ header('Content-Type: text/html; charset=utf-8');
     }
 
     // ── Modal 📝 Editar ─────────────────────────────────────────
-    function abrirModalEditar(uuid, serial, dispositivo, nombre, ci, celular, fijo, vtotarjeta, codigo, sector, activo, garantenombre, garantecelular, observaciones, fecharegistro) {
+    function abrirModalEditar(uuid, serial, dispositivo, nombre, ci, celular, fijo, vtotarjeta, codigo, sector, activo, garantenombre, garantecelular, garante2nombre, garante2celular, observaciones, fecharegistro) {
         document.getElementById('edit-uuid').value           = uuid;
         document.getElementById('edit-serial').value         = serial;
         document.getElementById('edit-nombre').value         = nombre;
@@ -2101,6 +2152,8 @@ header('Content-Type: text/html; charset=utf-8');
         document.getElementById('edit-activo').value         = activo === 'Sí' ? '1' : '0';
         document.getElementById('edit-garantenombre').value  = garantenombre;
         document.getElementById('edit-garantecelular').value = garantecelular;
+        document.getElementById('edit-garante2nombre').value  = garante2nombre;
+        document.getElementById('edit-garante2celular').value = garante2celular;
         document.getElementById('edit-observaciones').value  = observaciones;
         document.getElementById('edit-fecharegistro').value  = fecharegistro;
         document.getElementById('edit-device-info').innerHTML =
@@ -2190,9 +2243,11 @@ header('Content-Type: text/html; charset=utf-8');
             actualizarToggleLabel(!!data.activo);
         }
 
-        // Garante
+        // Garantes
         setGen('gen-garantenombre',   data.garantenombre,   '—');
         setGen('gen-garantecelular',  data.garantecelular,  '—');
+        setGen('gen-garante2nombre',  data.garante2nombre,  '—');
+        setGen('gen-garante2celular', data.garante2celular, '—');
 
         // Observaciones
         setGen('gen-observaciones', data.observaciones, 'Sin observaciones');
