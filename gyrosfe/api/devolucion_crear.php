@@ -61,9 +61,9 @@ try {
 
     $stmtIns = $pdo->prepare('
         INSERT INTO devoluciones
-            (codigo_cliente, nombre_cliente, ci_cliente, monto_a_devolver, fecha_cobro_debito)
+            (codigo_cliente, nombre_cliente, ci_cliente, monto_a_devolver, fecha_cobro_debito, modo_devolucion)
         VALUES
-            (:codigo, :nombre, :ci, :monto, :fecha)
+            (:codigo, :nombre, :ci, :monto, :fecha, :modo)
         RETURNING uuid
     ');
     $stmtIns->execute([
@@ -72,6 +72,7 @@ try {
         ':ci'     => $pago['ci'],
         ':monto'  => $dev,
         ':fecha'  => $pago['fecha_debito_extra'],
+        ':modo'   => 'Efectivo',
     ]);
     $devolucionUuid = $stmtIns->fetchColumn();
 
