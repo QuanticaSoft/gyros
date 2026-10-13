@@ -4,7 +4,7 @@
 -- copiados (código, nombre, CI), no como referencia a "Cliente".
 -- Ejecutar manualmente via psql (ver 2026_agent_tunnel_port.sql).
 --
--- Aplicado: (pendiente)
+-- Aplicado: 2026-10-12.
 
 -- UP
 CREATE TABLE IF NOT EXISTS devoluciones (
