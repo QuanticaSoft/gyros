@@ -1,5 +1,8 @@
 """
-HTTP server - consulta de saldo y debito (transferencia ACH) Banco Union (UNImovil Plus)
+HTTP server - consulta de saldo y debito Banco Union (UNImovil Plus)
+
+El debito va por Transferencia a Terceros si la cuentaOficina es del Banco Union
+(BU_OFICINA_BANCO) y por Transferencia ACH si es de otro banco.
 
 POST /consultar-saldo
   Body JSON: {"usuario": "...", "password": "...", "nombre_titular": "...", "dispositivo": "..."}
@@ -48,6 +51,12 @@ from union.steps_transferencia import (
     paso16_ingresar_monto_moneda_glosa,
     paso17_continuar_y_confirmar,
     paso18_leer_numero_envio,
+)
+from union.steps_terceros import (
+    paso21_abrir_transferencia_terceros,
+    paso22_asegurar_destinatario,
+    paso23_continuar_y_confirmar,
+    paso24_leer_comprobante,
 )
 
 app = Flask(__name__)
@@ -144,15 +153,25 @@ def debitar():
         paso6_confirmar_imagen_seguridad(d)
         paso7_ingresar_password(d, password)
 
-        paso11_abrir_menu_transferencia_ach(d)
-        paso12_validar_horario_ach(d)
-        paso13_buscar_destinatario(d, oficina.alias, oficina.banco)
-        paso14_verificar_destinatario(d, oficina.cuenta, oficina.banco)
+        if oficina.es_banco_union:
+            paso21_abrir_transferencia_terceros(d)
+            paso22_asegurar_destinatario(d, oficina.cuenta, oficina.titular)
+        else:
+            paso11_abrir_menu_transferencia_ach(d)
+            paso12_validar_horario_ach(d)
+            paso13_buscar_destinatario(d, oficina.alias, oficina.banco)
+            paso14_verificar_destinatario(d, oficina.cuenta, oficina.banco)
         paso15_seleccionar_cuenta_origen(d)
         paso16_ingresar_monto_moneda_glosa(d, monto, glosa, oficina.moneda)
-        paso17_continuar_y_confirmar(d, oficina.cuenta, oficina.banco)
+        if oficina.es_banco_union:
+            paso23_continuar_y_confirmar(d, oficina.cuenta)
+        else:
+            paso17_continuar_y_confirmar(d, oficina.cuenta, oficina.banco)
         try:
-            resultado = paso18_leer_numero_envio(d)
+            if oficina.es_banco_union:
+                resultado = paso24_leer_comprobante(d)
+            else:
+                resultado = paso18_leer_numero_envio(d)
             sesion_en_pantalla_conocida = True
         except Exception as exc:
             traceback.print_exc()
