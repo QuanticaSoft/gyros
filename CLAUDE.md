@@ -86,18 +86,18 @@ ps -o pid,ppid,cmd -e | grep -E "detecta.pl|heartbeat.pl"   # exactamente 2 proc
 
 ### Flujo de un débito de extremo a extremo
 
-1. El operador pulsa "debitar" en `gyrosfe/ui/main.php` → `POST api/debitar.php` (`id_pago`, `monto`).
+1. En la columna **Aporte** de `gyrosfe/ui/main.php` el operador pulsa COBRAR (cuota pendiente, monto editable precargado con la cuota) o DEBITAR (débito adicional) → `POST api/debitar.php` (`id_pago`, `monto`, `tipo` = `cobrar` | `debito`).
 2. `debitar.php` resuelve: cuota (`pago`) → préstamo → `Cliente.dispositivo` (serial ADB) → credenciales bancarias en `banco_cliente` con `nickname = 'pago'` y `isActive`.
 3. **Ruteo dinámico al agente**: busca en `UsbDeviceState` la fila `status='connected'` más reciente para ese serial y toma `Agent.tunnelPort` (cbb01 = 8080, scz01 = 8081). Si el teléfono se mueve físicamente a otro host, el ruteo lo sigue solo en cuanto llega el evento USB.
 4. Llama por curl a `http://127.0.0.1:<tunnelPort>/debitar`. Ese puerto en flamenco es el extremo de un **túnel SSH inverso** (`gyros-tunnel.service`) hacia el Flask `:8080` del agente.
 5. El agente (`union/server.py`) maneja la app en el teléfono con `uiautomator2` y devuelve `numero_envio`.
-6. `debitar.php` marca la cuota como `pagado` y graba los valores reales de amortización.
+6. Con `tipo=cobrar`, `debitar.php` marca la cuota como `pagado` y graba los valores reales de amortización a partir del monto realmente transferido (ya no se exige que coincida con `cuota_fija`). Con `tipo=debito` solo graba `pago.debito`, `nro_envio_debito` y `fecha_debito_extra`: no cambia estado ni amortización, y se registra en la próxima cuota pendiente del cliente o, si no hay, en la última pagada. El modal de pagos lo muestra bajo la cuota fija.
 
 `api/consulta_saldo.php` sigue el mismo camino hacia `/consultar-saldo` e inserta el resultado en la tabla `saldo` (opcionalmente ligado a una cuota con `tipo` = `antes` | `despues`).
 
 Estas llamadas son lentas (la automatización de UI tarda minutos): timeouts de curl de 180 s (saldo) y 280 s (débito).
 
-**El débito no es transaccional**: la transferencia ocurre en el paso 5 y la cuota se actualiza recién en el 6. La única protección contra un doble cobro es que `pago.nro_envio_transferencia` ya tenga valor (409). Si algo falla entre ambos pasos (timeout de curl, error de DB), el dinero ya se movió y la cuota sigue pendiente: nunca reintentar un débito fallido sin verificar antes en el banco o en el journal del agente.
+**El débito no es transaccional**: la transferencia ocurre en el paso 5 y la cuota se actualiza recién en el 6. La única protección contra un doble cobro es que `pago.nro_envio_transferencia` (cobro) o `pago.debito` (débito adicional, uno solo por cuota) ya tengan valor (409). Si algo falla entre ambos pasos (timeout de curl, error de DB), el dinero ya se movió y la cuota sigue pendiente: nunca reintentar un débito fallido sin verificar antes en el banco o en el journal del agente.
 
 ### Agente (`cbb01/`, `scz01/`)
 
