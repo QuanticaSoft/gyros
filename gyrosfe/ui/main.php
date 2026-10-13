@@ -2543,14 +2543,22 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // CUOTA FIJA: programada arriba, cuota editable debajo y, solo si hubo DEBITAR, DEV (débito − cuota)
+            // CUOTA FIJA: programada arriba. Debajo: si se cobró, el monto cobrado (fijo);
+            // si solo hubo DEBITAR, la cuota editable. Con débito, además DEV (débito − cuota).
             const debitoTitle = c.debito != null
                 ? `Débito ${fmtMoney(c.debito)} · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
                 : '';
             const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
-            const cuotaHtml = `${fmtMoney(c.cuota_fija)}<br>` +
-                `<input type="number" class="pago-cuota-input mono" min="0.01" step="0.01" title="Cuota editable"` +
-                ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">` +
+            const cobrado = c.estado === 'pagado' && c.transferencia != null;
+            let cuotaRealHtml = '';
+            if (cobrado) {
+                cuotaRealHtml = `<br><span class="val-real" title="Monto cobrado">${fmtMoney(c.transferencia)}</span>`;
+            } else if (c.debito != null) {
+                cuotaRealHtml = `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01" title="Cuota editable"` +
+                    ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">`;
+            }
+            const cuotaHtml = (cuotaRealHtml ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span>` : fmtMoney(c.cuota_fija)) +
+                cuotaRealHtml +
                 (c.debito != null
                     ? `<br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
                     : '');

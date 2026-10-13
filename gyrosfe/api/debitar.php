@@ -52,6 +52,7 @@ try {
     $stmtPago = $pdo->prepare('
         SELECT pg."id_pago", pg."fecha_pago", pg."nro_envio_transferencia",
                pg."debito", pg."nro_envio_debito", pg."cuota_editada",
+               pg."estado", pg."transferencia",
                pg."mes", pg."saldo_inicial", pg."cuota_fija",
                pg."prestamoIdPrestamo",
                pr."clienteIdCliente" AS uuid,
@@ -155,8 +156,15 @@ try {
 
     if ($tipo === 'debito') {
         // El débito adicional solo se registra: no cambia estado ni amortización.
-        // La cuota es editable en el dashboard; sin ella se usa la vigente de la cuota.
-        $cuotaRef = $cuota !== '' ? (float) $cuota : (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
+        // Cuota de referencia: el monto cobrado si la cuota ya se cobró; si no, la del
+        // campo COBRAR del dashboard y, en su defecto, la vigente de la cuota.
+        if ($pago['estado'] === 'pagado' && $pago['transferencia'] !== null) {
+            $cuotaRef = (float) $pago['transferencia'];
+        } elseif ($cuota !== '') {
+            $cuotaRef = (float) $cuota;
+        } else {
+            $cuotaRef = (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
+        }
         $dev      = number_format((float) $monto - $cuotaRef, 2, '.', '');
 
         $stmtDeb = $pdo->prepare('
@@ -220,12 +228,14 @@ try {
             "interes_real"            = :interesreal,
             "capital_real"            = :capitalreal,
             "saldo_deudor_real"       = :saldoreal,
+            "dev"                     = CASE WHEN "debito" IS NOT NULL THEN "debito" - :montodev ELSE "dev" END,
             "updated_at"              = NOW()
         WHERE "id_pago" = :id
     ');
     $stmtUpd->execute([
         ':nro'         => $numeroEnvio,
         ':monto'       => $monto,
+        ':montodev'    => $monto,
         ':id'          => $idPago,
         ':diasreal'    => $diasReal,
         ':interesreal' => $interesReal,
