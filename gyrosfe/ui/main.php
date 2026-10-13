@@ -106,7 +106,7 @@ LEFT JOIN LATERAL (
         pg.id_pago,
         pg.fecha_pago,
         pg.mes,
-        pg.cuota_fija,
+        COALESCE(pg.cuota_editada, pg.cuota_fija) AS cuota_fija,
         pg.debito,
         EXTRACT(DAY FROM pr.fecha_prestamo)::int AS dia_prestamo,
         CASE
@@ -666,6 +666,20 @@ header('Content-Type: text/html; charset=utf-8');
         .pago-fecha-input:hover { border-color: #4a5080; }
         .pago-fecha-input:focus { border-color: #7b93ff; outline: none; background: #0d1120; }
         .pago-fecha-input.saving { opacity: .5; pointer-events: none; }
+        .pago-cuota-input {
+            background: transparent;
+            border: 1px solid #2a2f45;
+            border-radius: 4px;
+            color: #7b93ff;
+            font-size: .80rem;
+            font-weight: 600;
+            padding: 2px 4px;
+            width: 78px;
+            text-align: center;
+        }
+        .pago-cuota-input:hover { border-color: #4a5080; }
+        .pago-cuota-input:focus { border-color: #7b93ff; outline: none; background: #0d1120; }
+        .pago-cuota-input.saving { opacity: .5; pointer-events: none; }
         .pago-table {
             width: 100%;
             border-collapse: collapse;
@@ -2437,6 +2451,36 @@ header('Content-Type: text/html; charset=utf-8');
                     }
                 });
             });
+            // Eventos en inputs de cuota editable
+            content.querySelectorAll('.pago-cuota-input').forEach(inp => {
+                inp.addEventListener('change', async function() {
+                    const cuota = parseFloat(this.value);
+                    if (isNaN(cuota) || cuota <= 0) {
+                        alert('Ingresa una cuota válida.');
+                        this.value = this.dataset.original;
+                        return;
+                    }
+                    this.classList.add('saving');
+                    try {
+                        const fd = new FormData();
+                        fd.append('id_pago', this.dataset.id);
+                        fd.append('cuota',   cuota.toFixed(2));
+                        const res  = await fetch('/gyrosfe/api/pago_cuota.php', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.ok) {
+                            await cargarPagos(_regUuid);
+                        } else {
+                            alert('Error al actualizar cuota: ' + (data.error ?? 'desconocido'));
+                            this.value = this.dataset.original;
+                            this.classList.remove('saving');
+                        }
+                    } catch(e) {
+                        alert('Error de red: ' + e.message);
+                        this.value = this.dataset.original;
+                        this.classList.remove('saving');
+                    }
+                });
+            });
         } catch(err) {
             loading.style.display = 'none';
             content.innerHTML = `<p style="color:#f87171;padding:20px">Error de red: ${err.message}</p>`;
@@ -2499,13 +2543,17 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // CUOTA FIJA: programada arriba y, solo si hubo DEBITAR, DEV (débito − cuota) debajo
+            // CUOTA FIJA: programada arriba, cuota editable debajo y, solo si hubo DEBITAR, DEV (débito − cuota)
             const debitoTitle = c.debito != null
                 ? `Débito ${fmtMoney(c.debito)} · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra.substring(0, 10)) : '—'}`
                 : '';
-            const cuotaHtml = c.debito != null
-                ? `<span class="val-prog">${fmtMoney(c.cuota_fija)}</span><br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
-                : fmtMoney(c.cuota_fija);
+            const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
+            const cuotaHtml = `${fmtMoney(c.cuota_fija)}<br>` +
+                `<input type="number" class="pago-cuota-input mono" min="0.01" step="0.01" title="Cuota editable"` +
+                ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">` +
+                (c.debito != null
+                    ? `<br><span class="val-debito" title="${debitoTitle}">DEV ${fmtMoney(c.dev)}</span>`
+                    : '');
 
             const saldoFin   = parseFloat(c.saldo_deudor ?? 0).toFixed(2);
             const fechaVal   = c.fecha_pago      ? c.fecha_pago.substring(0, 10)      : '';
@@ -2564,7 +2612,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <thead><tr>
                         <th>MES</th>
                         <th>FECHA PAGO <span class="th-pr">P/R</span></th>
-                        <th>CUOTA FIJA <span class="th-pr">P/DEV</span></th>
+                        <th>CUOTA FIJA <span class="th-pr">P/E</span></th>
                         <th>INTERÉS <span class="th-pr">P/R</span></th>
                         <th>CAPITAL <span class="th-pr">P/R</span></th>
                         <th>SALDO <span class="th-pr">P/R</span></th>

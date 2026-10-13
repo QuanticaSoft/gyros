@@ -51,7 +51,7 @@ try {
     // 1. Obtener la cuota, su prestamo y el cliente duenio
     $stmtPago = $pdo->prepare('
         SELECT pg."id_pago", pg."fecha_pago", pg."nro_envio_transferencia",
-               pg."debito", pg."nro_envio_debito",
+               pg."debito", pg."nro_envio_debito", pg."cuota_editada",
                pg."mes", pg."saldo_inicial", pg."cuota_fija",
                pg."prestamoIdPrestamo",
                pr."clienteIdCliente" AS uuid,
@@ -155,8 +155,8 @@ try {
 
     if ($tipo === 'debito') {
         // El débito adicional solo se registra: no cambia estado ni amortización.
-        // La cuota es editable en el dashboard; sin ella se usa la cuota fija registrada.
-        $cuotaRef = $cuota !== '' ? (float) $cuota : (float) $pago['cuota_fija'];
+        // La cuota es editable en el dashboard; sin ella se usa la vigente de la cuota.
+        $cuotaRef = $cuota !== '' ? (float) $cuota : (float) ($pago['cuota_editada'] ?? $pago['cuota_fija']);
         $dev      = number_format((float) $monto - $cuotaRef, 2, '.', '');
 
         $stmtDeb = $pdo->prepare('
