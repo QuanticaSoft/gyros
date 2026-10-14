@@ -17,6 +17,26 @@ APP_PACKAGE = "com.bancounion.unimovilplus"
 BOTON_INICIAR = "INICIAR SESIÓN"
 
 
+def cerrar_teclado(d: u2.Device) -> None:
+    # No se usa d.hide_keyboard(): en uiautomator2 3.x instala y activa como
+    # teclado la app ATX, que Play Protect bloquea en Android 13 y deja la
+    # request colgada en su diálogo. BACK solo se envía con el teclado visible,
+    # porque sin él la app lo toma como "volver a la pantalla anterior".
+    if "mInputShown=true" in d.shell("dumpsys input_method").output:
+        d.press("back")
+
+
+def textos_en_pantalla(d: u2.Device) -> str:
+    """Textos visibles (sin campos editables) para que el error diga qué mostró la app."""
+    jerarquia = d.dump_hierarchy()
+    textos = []
+    for nodo in re.finditer(r'<node [^>]*?text="([^"]+)"[^>]*?class="([^"]+)"', jerarquia):
+        texto, clase = nodo.groups()
+        if clase != "android.widget.EditText" and texto not in textos:
+            textos.append(texto)
+    return " | ".join(textos[:15]) or "(sin textos)"
+
+
 # ---------------------------------------------------------------------------
 # Paso 1 — Encender pantalla y lanzar la app
 # ---------------------------------------------------------------------------
@@ -193,16 +213,17 @@ def paso5_esperar_pantalla_password(d: u2.Device, nombre_titular: str = "") -> N
         _verificar_titular(d, nombre_titular)
         return
 
-    # Fallback: verificar que apareció un nuevo EditText (campo contraseña)
-    campo_pwd = d(className="android.widget.EditText")
-    if campo_pwd.wait(timeout=5):
-        print("[PASO 5] Pantalla de contraseña detectada (EditText).")
+    # Fallback por el checkbox de la imagen de seguridad, que solo existe en esta
+    # pantalla: un EditText no sirve porque la pantalla de login también tiene uno.
+    if d(className="android.widget.CheckBox").wait(timeout=5):
+        print("[PASO 5] Pantalla de contraseña detectada (checkbox de seguridad).")
         _verificar_titular(d, nombre_titular)
         return
 
     raise RuntimeError(
         "[PASO 5] La pantalla de contraseña no apareció en el tiempo esperado.\n"
-        "Posibles causas: usuario incorrecto, timeout de red, o la app mostró un error."
+        "Posibles causas: usuario incorrecto, timeout de red, o la app mostró un error.\n"
+        f"En pantalla: {textos_en_pantalla(d)}"
     )
 
 
@@ -234,7 +255,7 @@ def paso6_confirmar_imagen_seguridad(d: u2.Device) -> None:
     if not checkbox.wait(timeout=5):
         raise RuntimeError(
             "[PASO 6] No se encontró el checkbox de imagen de seguridad.\n"
-            "Verifica que la pantalla de contraseña esté visible."
+            f"En pantalla: {textos_en_pantalla(d)}"
         )
 
     if checkbox.info.get("checked", False):
@@ -268,7 +289,7 @@ def paso7_ingresar_password(d: u2.Device, password: str) -> None:
     print("[PASO 7] Contraseña ingresada.")
 
     # Cerrar el teclado emergente para que el botón INICIAR SESIÓN quede visible
-    d.hide_keyboard()
+    cerrar_teclado(d)
     time.sleep(0.5)
     print("[PASO 7] Teclado cerrado.")
 
@@ -279,26 +300,44 @@ def paso7_ingresar_password(d: u2.Device, password: str) -> None:
     btn.click()
     print("[PASO 7] Clic en INICIAR SESIÓN. Esperando dashboard...")
 
-    # Esperar que aparezca el dashboard
     time.sleep(3)
-    indicadores = ["Consolidado", "Cuentas", "Bienvenido", "Saldo", "CAJA"]
-    for texto in indicadores:
-        if d(textContains=texto).wait(timeout=12):
-            print(f"[PASO 7] Dashboard detectado ('{texto}'). Login exitoso.")
-            return
+    _esperar_dashboard(d)
 
-    # Verificar si hay un dialogo de alerta post-login
-    for txt in ["CONTINUAR", "Continuar", "Aceptar", "OK"]:
-        btn_alerta = d(text=txt)
-        if btn_alerta.exists:
-            print(f"[PASO 7] Dialogo post-login cerrado: '{txt}'")
-            btn_alerta.click()
-            time.sleep(3)
-            return
+
+ESPERA_DASHBOARD_S = 60
+INDICADORES_DASHBOARD = ["Consolidado", "Cuentas", "Bienvenido", "Saldo", "CAJA"]
+BOTONES_DIALOGO_POST_LOGIN = ["CONTINUAR", "Continuar", "Aceptar", "OK"]
+
+
+def _esperar_dashboard(d: u2.Device) -> None:
+    # Se revisan todas las salidas posibles en cada vuelta en lugar de esperar
+    # cada indicador por separado: así el cambio de clave obligatorio se detecta
+    # antes de pulsar su CONTINUAR, que no es un aviso sino el envío del formulario.
+    limite = time.time() + ESPERA_DASHBOARD_S
+    while time.time() < limite:
+        if d(textMatches=r"(?i).*cambio de clave.*").exists:
+            raise RuntimeError(
+                "[PASO 7] El banco exige cambiar la contraseña (pantalla CAMBIO DE CLAVE).\n"
+                "El cliente debe cambiarla en la app y luego hay que actualizar la clave en gyrosfe."
+            )
+        for texto in INDICADORES_DASHBOARD:
+            if d(textContains=texto).exists:
+                print(f"[PASO 7] Dashboard detectado ('{texto}'). Login exitoso.")
+                return
+        for txt in BOTONES_DIALOGO_POST_LOGIN:
+            btn_alerta = d(text=txt)
+            if btn_alerta.exists:
+                print(f"[PASO 7] Dialogo post-login cerrado: '{txt}'. En pantalla: {textos_en_pantalla(d)}")
+                btn_alerta.click()
+                time.sleep(3)
+                break
+        else:
+            time.sleep(1)
 
     raise RuntimeError(
         "[PASO 7] No se pudo confirmar el ingreso al dashboard.\n"
-        "Posibles causas: contraseña incorrecta, sesión bloqueada o timeout de red."
+        "Posibles causas: contraseña incorrecta, sesión bloqueada o timeout de red.\n"
+        f"En pantalla: {textos_en_pantalla(d)}"
     )
 
 
@@ -351,7 +390,7 @@ def paso8_leer_saldo(d: u2.Device) -> str:
 
     raise RuntimeError(
         "[PASO 8] No se pudo extraer el saldo de la pantalla.\n"
-        "Ejecuta: adb shell uiautomator dump y revisa el XML para encontrar el resourceId correcto."
+        f"En pantalla: {textos_en_pantalla(d)}"
     )
 
 

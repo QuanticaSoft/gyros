@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
-from union.steps import aceptar_dialogo_permiso
+from union.steps import aceptar_dialogo_permiso, cerrar_teclado
 from union.steps_transferencia import (
     DestinatarioNoCoincide,
     _esperar_pantalla_estable,
@@ -132,7 +132,7 @@ def _agregar_cuenta_tercero(d: u2.Device, cuenta: str) -> None:
     time.sleep(0.5)
     if (campo.get_text() or "").strip() != cuenta:
         raise RuntimeError("[PASO 22] El numero de cuenta no quedo bien escrito. Abortando el alta.")
-    d.hide_keyboard()
+    cerrar_teclado(d)
     time.sleep(0.5)
 
     # El WebView no expone si la casilla quedo marcada: se marca una vez (el
@@ -210,7 +210,7 @@ def paso22_asegurar_destinatario(d: u2.Device, cuenta: str, titular: str = "") -
 
 def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str) -> None:
     print("[PASO 23] Tocando CONTINUAR...")
-    d.hide_keyboard()
+    cerrar_teclado(d)
     time.sleep(0.3)
     btn_continuar = _scroll_hasta_encontrar(d, d(resourceId="btn-continuar"), max_intentos=6)
     if btn_continuar is None:
