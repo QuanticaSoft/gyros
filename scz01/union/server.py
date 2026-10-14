@@ -185,6 +185,7 @@ def debitar():
         return jsonify({"ok": True, "numero_envio": resultado["numero_envio"], "monto": monto})
 
     except (FueraDeHorarioACH, DestinatarioNoCoincide) as exc:
+        print(f"[DEBITAR] Abortado sin transferir: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 409
 
     except Exception as exc:
