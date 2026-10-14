@@ -2928,7 +2928,8 @@ header('Content-Type: text/html; charset=utf-8');
                         (fechaFmt ? `<div class="small" style="color:#9aa0b8;margin-top:2px">${fechaFmt}</div>` : '');
                 }
             } else {
-                if (cell) { cell.innerHTML = '<span style="color:#f87171;font-size:.78rem">Error</span>'; }
+                const etiqueta = data.codigo === 'cambio_clave' ? 'Cambiar clave' : 'Error';
+                if (cell) { cell.innerHTML = `<span style="color:#f87171;font-size:.78rem">${etiqueta}</span>`; }
                 alert('Error al consultar saldo: ' + (data.error ?? 'desconocido'));
             }
         } catch (err) {
