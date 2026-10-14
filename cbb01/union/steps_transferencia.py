@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
-from union.steps import aceptar_dialogo_permiso
+from union.steps import aceptar_dialogo_permiso, cerrar_teclado
 
 MENU_TRANSFERENCIAS_INTERBANCARIAS = "Transferencias Interbancarias"
 MENU_TRANSFERENCIA_ACH = "Transferencia ACH"
@@ -330,7 +330,7 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
     campo_monto.click()
     campo_monto.clear_text()
     campo_monto.set_text(str(monto))
-    d.hide_keyboard()
+    cerrar_teclado(d)
     time.sleep(0.5)
     print(f"[PASO 16] Monto '{monto}' ingresado.")
 
@@ -371,14 +371,14 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
         time.sleep(0.8)
         d.shell(f"input text {glosa}")
         time.sleep(0.3)
-        d.hide_keyboard()
+        cerrar_teclado(d)
         time.sleep(0.3)
         print(f"[PASO 16] Glosa ingresada: {glosa}")
     else:
         # Fallback: si TAB ya movió el foco a Glosa, escribir directamente
         d.shell(f"input text {glosa}")
         time.sleep(0.3)
-        d.hide_keyboard()
+        cerrar_teclado(d)
         time.sleep(0.3)
         print(f"[PASO 16] Glosa ingresada (foco TAB): {glosa}")
 
@@ -401,7 +401,7 @@ def _valor_tras_etiqueta(hierarchy: str, etiqueta: str) -> str:
 def paso17_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, banco_esperado: str) -> None:
     print("[PASO 17] Tocando CONTINUAR...")
     # El foco queda en el campo Glosa tras paso 16 — moverlo con TAB antes de buscar el boton
-    d.hide_keyboard()
+    cerrar_teclado(d)
     time.sleep(0.3)
     d.shell("input keyevent KEYCODE_TAB")
     time.sleep(0.5)

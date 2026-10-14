@@ -88,6 +88,8 @@ def consultar_saldo():
     if not lock.acquire(blocking=False):
         return jsonify({"ok": False, "error": f"Dispositivo {dispositivo} ocupado, reintente en unos segundos"}), 503
 
+    d = None
+    sesion_en_pantalla_conocida = False
     try:
         d = u2.connect(dispositivo)
 
@@ -99,8 +101,7 @@ def consultar_saldo():
         paso6_confirmar_imagen_seguridad(d)
         paso7_ingresar_password(d, password)
         saldo = paso8_leer_saldo(d)
-        paso9_cerrar_sesion(d)
-        paso10_cerrar_app(d)
+        sesion_en_pantalla_conocida = True
 
         return jsonify({"ok": True, "saldo": saldo})
 
@@ -109,6 +110,7 @@ def consultar_saldo():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
+        _cerrar_sin_alterar_respuesta(d, con_logout=sesion_en_pantalla_conocida)
         lock.release()
 
 
@@ -203,7 +205,8 @@ def _cerrar_sin_alterar_respuesta(d, con_logout: bool) -> None:
     transferencia ya se hizo o ya fallo, y un error de cierre no debe cambiar
     lo que se le responde a gyrosfe (un 500 tras un debito real invita a
     reintentarlo). El logout es un tap por coordenadas, asi que solo se hace
-    desde el comprobante; en cualquier otra pantalla basta con detener la app.
+    desde una pantalla conocida (el comprobante o, en la consulta de saldo, el
+    dashboard); en cualquier otra basta con detener la app.
     """
     if d is None:
         return
