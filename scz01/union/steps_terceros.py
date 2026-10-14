@@ -14,6 +14,8 @@ agrega la cuentaOficina la primera vez que se debita desde un telefono.
 
 import re
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
@@ -36,7 +38,9 @@ TEXTO_CLAVE_TRANSACCIONAL = "Clave Transaccional"
 # prefijo, y se exige un minimo de palabras para que la coincidencia signifique algo.
 _MIN_PALABRAS_TITULAR = 2
 
-_ETIQUETAS_COMPROBANTE = ("envio", "envío", "transaccion", "transacción", "operacion", "operación", "comprobante")
+TEXTO_OPERACION_EXITOSA = "PROCESADA EXITOSAMENTE"
+
+_TZ_BOLIVIA = ZoneInfo("America/La_Paz")
 
 
 def _textos(hierarchy: str) -> list[str]:
@@ -245,34 +249,28 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Paso 24 - Leer el numero de operacion del comprobante
+# Paso 24 - Confirmar el resultado en el comprobante
+#
+# El comprobante de una transferencia a terceros ("OPERACION PROCESADA
+# EXITOSAMENTE", cuentas, monto, moneda y glosa) no trae numero de operacion,
+# a diferencia del de ACH. gyrosfe necesita un numero de envio no vacio para
+# dar la cuota por cobrada, asi que se devuelve la fecha y hora de la
+# confirmacion (YYYYMMDDHHMMSS, hora de Bolivia) como referencia.
 # ---------------------------------------------------------------------------
-
-def _numero_de_comprobante(textos: list[str]) -> str:
-    for i, texto in enumerate(textos[:-1]):
-        etiqueta = texto.lower()
-        if "transaccional" in etiqueta or not any(e in etiqueta for e in _ETIQUETAS_COMPROBANTE):
-            continue
-        valor = textos[i + 1]
-        if valor.isdigit() and len(valor) >= 4:
-            return valor
-    return ""
-
 
 def paso24_leer_comprobante(d: u2.Device) -> dict:
     print("[PASO 24] Leyendo comprobante...")
     textos: list[str] = []
     for _ in range(25):
         textos = _textos(d.dump_hierarchy())
-        en_confirmacion = any(TEXTO_CLAVE_TRANSACCIONAL in t for t in textos)
-        numero = "" if en_confirmacion else _numero_de_comprobante(textos)
-        if numero:
-            print(f"[PASO 24] Numero de operacion: {numero}")
-            return {"numero_envio": numero}
+        if any(TEXTO_OPERACION_EXITOSA in t.upper() for t in textos):
+            referencia = datetime.now(_TZ_BOLIVIA).strftime("%Y%m%d%H%M%S")
+            print(f"[PASO 24] Operacion procesada exitosamente. Referencia: {referencia}")
+            return {"numero_envio": referencia}
         time.sleep(1)
 
     # Lo que quedo en pantalla es la unica pista de si la transferencia se hizo.
-    print("[PASO 24] Textos en pantalla al no hallar el numero de operacion:")
+    print("[PASO 24] Textos en pantalla al no hallar la confirmacion de la operacion:")
     for texto in textos:
         print(f"[PASO 24]   {texto}")
-    raise RuntimeError("[PASO 24] No se pudo extraer el numero de operacion del comprobante.")
+    raise RuntimeError("[PASO 24] El comprobante no confirma que la operacion se haya procesado.")
