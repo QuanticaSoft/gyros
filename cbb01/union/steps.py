@@ -17,6 +17,11 @@ APP_PACKAGE = "com.bancounion.unimovilplus"
 BOTON_INICIAR = "INICIAR SESIÓN"
 
 
+class CambioDeClaveRequerido(Exception):
+    """El banco pide cambiar la contraseña tras el login (pantalla CAMBIO DE CLAVE)."""
+    codigo = "cambio_clave"
+
+
 def cerrar_teclado(d: u2.Device) -> None:
     # No se usa d.hide_keyboard(): en uiautomator2 3.x instala y activa como
     # teclado la app ATX, que Play Protect bloquea en Android 13 y deja la
@@ -316,9 +321,9 @@ def _esperar_dashboard(d: u2.Device) -> None:
     limite = time.time() + ESPERA_DASHBOARD_S
     while time.time() < limite:
         if d(textMatches=r"(?i).*cambio de clave.*").exists:
-            raise RuntimeError(
+            raise CambioDeClaveRequerido(
                 "[PASO 7] El banco exige cambiar la contraseña (pantalla CAMBIO DE CLAVE).\n"
-                "El cliente debe cambiarla en la app y luego hay que actualizar la clave en gyrosfe."
+                "El cliente debe cambiarla en la app y luego hay que actualizar la clave en Gyros."
             )
         for texto in INDICADORES_DASHBOARD:
             if d(textContains=texto).exists:

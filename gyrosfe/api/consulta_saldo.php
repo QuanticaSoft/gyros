@@ -6,10 +6,10 @@ auth_require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 
-function jsonErr(string $msg, int $code = 400): void
+function jsonErr(string $msg, int $code = 400, ?string $codigo = null): void
 {
     http_response_code($code);
-    echo json_encode(['ok' => false, 'error' => $msg]);
+    echo json_encode(['ok' => false, 'error' => $msg] + ($codigo !== null ? ['codigo' => $codigo] : []));
     exit;
 }
 
@@ -110,7 +110,7 @@ try {
 
     $agentData = json_decode($resp, true);
     if (!($agentData['ok'] ?? false)) {
-        jsonErr($agentData['error'] ?? 'Error desconocido en agente', 500);
+        jsonErr($agentData['error'] ?? 'Error desconocido en agente', 500, $agentData['codigo'] ?? null);
     }
 
     // 5. Normalizar saldo (puede venir como "1.250,50" o "1250.50")

@@ -28,6 +28,7 @@ from flask import Flask, jsonify, request
 
 from union.config import load_oficina_config
 from union.steps import (
+    CambioDeClaveRequerido,
     paso1_lanzar_app,
     paso2_esperar_login,
     paso3_ingresar_usuario,
@@ -104,6 +105,10 @@ def consultar_saldo():
         sesion_en_pantalla_conocida = True
 
         return jsonify({"ok": True, "saldo": saldo})
+
+    except CambioDeClaveRequerido as exc:
+        print(f"[SALDO] Abortado: {exc}")
+        return jsonify({"ok": False, "codigo": exc.codigo, "error": str(exc)}), 409
 
     except Exception as exc:
         traceback.print_exc()
@@ -186,7 +191,7 @@ def debitar():
 
         return jsonify({"ok": True, "numero_envio": resultado["numero_envio"], "monto": monto})
 
-    except (FueraDeHorarioACH, DestinatarioNoCoincide) as exc:
+    except (FueraDeHorarioACH, DestinatarioNoCoincide, CambioDeClaveRequerido) as exc:
         print(f"[DEBITAR] Abortado sin transferir: {exc}")
         return jsonify({"ok": False, "error": str(exc)}), 409
 
