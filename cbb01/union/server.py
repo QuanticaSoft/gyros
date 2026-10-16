@@ -26,6 +26,7 @@ from datetime import datetime
 import uiautomator2 as u2
 from flask import Flask, jsonify, request
 
+from union.capturas import guardar_captura
 from union.config import load_oficina_config
 from union.steps import (
     CambioDeClaveRequerido,
@@ -108,10 +109,12 @@ def consultar_saldo():
 
     except CambioDeClaveRequerido as exc:
         print(f"[SALDO] Abortado: {exc}")
+        guardar_captura(d, "saldo", dispositivo)
         return jsonify({"ok": False, "codigo": exc.codigo, "error": str(exc)}), 409
 
     except Exception as exc:
         traceback.print_exc()
+        guardar_captura(d, "saldo", dispositivo)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
@@ -182,6 +185,7 @@ def debitar():
             sesion_en_pantalla_conocida = True
         except Exception as exc:
             traceback.print_exc()
+            guardar_captura(d, "debitar-comprobante", dispositivo)
             return jsonify({
                 "ok": False,
                 "transferencia_incierta": True,
@@ -193,10 +197,12 @@ def debitar():
 
     except (FueraDeHorarioACH, DestinatarioNoCoincide, CambioDeClaveRequerido) as exc:
         print(f"[DEBITAR] Abortado sin transferir: {exc}")
+        guardar_captura(d, "debitar", dispositivo)
         return jsonify({"ok": False, "error": str(exc)}), 409
 
     except Exception as exc:
         traceback.print_exc()
+        guardar_captura(d, "debitar", dispositivo)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
     finally:
