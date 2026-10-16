@@ -3066,6 +3066,7 @@ header('Content-Type: text/html; charset=utf-8');
         const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
 
         let transferido = false;
+        let data = null;
         try {
             // 1) Saldo ANTES
             const antes = await consultaSaldoLigada(uuid, idPagoSaldo, 'antes');
@@ -3073,7 +3074,7 @@ header('Content-Type: text/html; charset=utf-8');
 
             // 2) Transferencia por el monto total a DEBITAR
             fase = 'Debitando';
-            const data = await postDebitar(uuid, monto, devolucion);
+            data = await postDebitar(uuid, monto, devolucion);
             if (!data.ok) {
                 transferido = !!(data.transferencia_incierta || data.transferencia_realizada);
                 throw new Error(data.error ?? 'desconocido');
@@ -3082,7 +3083,6 @@ header('Content-Type: text/html; charset=utf-8');
             if (debitarInput)    debitarInput.value    = '0.00';
             if (devolucionInput) devolucionInput.value = '0.00';
             recalcAporte(uuid);
-            if (resultado) resultado.innerHTML = aporteResultadoHtml(data);
             if (aporteCts > 0) {
                 // La cuota quedó pagada: el id ligado al botón ya no es la cuota pendiente
                 cell?.querySelectorAll('input, button').forEach(el => {
@@ -3108,11 +3108,17 @@ header('Content-Type: text/html; charset=utf-8');
                     `<div class="small" style="color:#9aa0b8;margin-top:2px">${fechaFmt}</div>` +
                     `<div class="small mono" style="color:#7b93ff;margin-top:2px">${parseFloat(antes.saldo).toFixed(2)} → ${parseFloat(despues.saldo).toFixed(2)}</div>`;
             }
+            // El contador escribe en el mismo div: detenerlo antes de dejar el resultado
+            clearInterval(timer);
+            if (resultado) resultado.innerHTML = aporteResultadoHtml(data);
         } catch (err) {
+            clearInterval(timer);
             if (saldoCell) saldoCell.innerHTML = originalSaldo;
             if (transferido) {
-                if (resultado && !resultado.innerHTML.includes('N°')) {
-                    resultado.innerHTML = `<span style="color:#f87171">Verificar en el banco</span>`;
+                if (resultado) {
+                    resultado.innerHTML = data?.ok
+                        ? aporteResultadoHtml(data)
+                        : `<span style="color:#f87171">Verificar en el banco</span>`;
                 }
                 alert('ATENCIÓN: la transferencia se realizó o pudo haberse realizado. ' +
                       'NO reintentar sin verificar en el banco y en el journal del agente.\n\n' + err.message);

@@ -6,7 +6,7 @@
 -- Debe aplicarse ANTES de desplegar el código que lo usa: api/debitar.php inserta estas columnas.
 -- Ejecutar manualmente via psql (ver 2026_agent_tunnel_port.sql).
 --
--- Aplicado: (pendiente).
+-- Aplicado: 2026-10-16.
 
 -- UP
 ALTER TABLE devoluciones
