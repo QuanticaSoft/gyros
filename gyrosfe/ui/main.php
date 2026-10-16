@@ -69,16 +69,11 @@ SELECT
   pp.fecha_pago                            AS pp_fecha,
   pp.estado_calc                           AS pp_estado,
   pp.mes                                   AS pp_mes,
-  pp.cuota_fija                            AS pp_cuota_fija,
   pp.dia_prestamo                          AS pp_dia_prestamo,
-
-  COALESCE(pp.id_pago, lastpaid.id_pago)   AS deb_id_pago,
-  CASE WHEN pp.id_pago IS NOT NULL
-       THEN pp.debito ELSE lastpaid.debito
-  END                                      AS deb_monto,
 
   bc.usuario                               AS bc_usuario,
   bc.key                                   AS bc_key,
+  bcp.banco                                AS bcp_banco,
 
   sl.saldo                                 AS sl_saldo,
   sl.fecha_hora                            AS sl_fecha_hora,
@@ -108,8 +103,6 @@ LEFT JOIN LATERAL (
         pg.id_pago,
         pg.fecha_pago,
         pg.mes,
-        pg.cuota_fija,
-        pg.debito,
         EXTRACT(DAY FROM pr.fecha_prestamo)::int AS dia_prestamo,
         CASE
             WHEN pg.estado = 'pagado'        THEN 'pagado'
@@ -133,6 +126,15 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) bc ON true
 LEFT JOIN LATERAL (
+    -- Cuenta desde la que se debita (misma que usa api/debitar.php)
+    SELECT bc.banco
+    FROM "banco_cliente" bc
+    WHERE bc."clienteIdCliente" = cl.uuid
+      AND lower(bc.nickname) = 'pago'
+      AND bc."isActive" = true
+    LIMIT 1
+) bcp ON true
+LEFT JOIN LATERAL (
     SELECT s.saldo, s.fecha_hora
     FROM saldo s
     WHERE s.cliente_id = cl.uuid
@@ -141,7 +143,7 @@ LEFT JOIN LATERAL (
 ) sl ON true
 LEFT JOIN LATERAL (
     -- Última cuota debitada (pagada) del cliente, para mostrar su par antes/después
-    SELECT pg.id_pago, pg.debito
+    SELECT pg.id_pago
     FROM "pago" pg
     JOIN "prestamo" pr ON pr."id_prestamo" = pg."prestamoIdPrestamo"
     WHERE pr."clienteIdCliente" = cl.uuid
@@ -425,10 +427,10 @@ header('Content-Type: text/html; charset=utf-8');
         .btn-accion:hover { background: rgba(255,255,255,.1); }
         .btn-accion:disabled { opacity: .35; cursor: not-allowed; }
 
-        /* ── Columna Aporte: filas COBRAR / DEBITAR ────────────── */
+        /* ── Columna Aporte: DEBITAR / DEVOLUCION / APORTE ─────── */
         .aporte-fila {
             display: grid;
-            grid-template-columns: 92px 98px 34px;
+            grid-template-columns: 112px 98px 34px;
             align-items: center;
             gap: 8px;
             min-height: 30px;
@@ -438,6 +440,11 @@ header('Content-Type: text/html; charset=utf-8');
         }
         .aporte-fila .aporte-etiqueta { text-align: right; letter-spacing: .03em; }
         .aporte-fila .aporte-estado   { grid-column: 2 / 4; text-align: left; }
+        .aporte-fila .aporte-calc     { grid-column: 2 / 3; text-align: right; padding-right: 7px;
+                                        font-size: .82rem; font-weight: 600; color: #34d399; }
+        .aporte-fila .aporte-calc.negativo { color: #f87171; }
+        .aporte-resultado { font-size: .78rem; text-align: right; }
+        .aporte-resultado:empty { display: none; }
         .aporte-input {
             box-sizing: border-box;
             width: 100%;
@@ -1168,48 +1175,49 @@ header('Content-Type: text/html; charset=utf-8');
                 ?>
                 <td class="mono" style="white-space:nowrap"><?= $cuotaHtml ?></td>
 
-                <!-- Aporte: COBRAR (cuota pendiente) y DEBITAR (débito adicional) -->
+                <!-- Aporte: DEBITAR − DEVOLUCIÓN = APORTE (pago a la cuota pendiente) -->
                 <?php
-                    $ppIdPago    = $r['pp_id_pago']     ?? null;
-                    $ppCuotaFija = $r['pp_cuota_fija']  ?? null;
-                    $debIdPago   = $r['deb_id_pago']    ?? null;
-                    $debMonto    = $r['deb_monto']      ?? null;
+                    $ppIdPago = $r['pp_id_pago'] ?? null;
+                    $bcpBanco = (string) ($r['bcp_banco'] ?? '');
+                    // Misma regla que esBancoUnion() de api/debitar.php
+                    $esUnion  = str_contains(strtoupper(strtr($bcpBanco, ['ó' => 'o', 'Ó' => 'O'])), 'UNION');
+                    if ($bcpBanco === '') {
+                        $atmBloqueo = 'El cliente no tiene cuenta bancaria "pago" activa';
+                    } elseif (!$esUnion) {
+                        $atmBloqueo = "Débito desde {$bcpBanco} aún no soportado: solo cuentas del Banco Unión";
+                    } else {
+                        $atmBloqueo = null;
+                    }
+                    $uuidJs = esc($clienteUuid);
                 ?>
-                <td id="debitar-cell-<?= esc($clienteUuid) ?>">
-                <?php if (!$registrado): ?>
+                <td id="debitar-cell-<?= $uuidJs ?>">
+                <?php if (!$registrado || $lpCantidad === 0): ?>
                     <span style="color:#555c7a">—</span>
                 <?php else: ?>
-                    <div class="aporte-fila" id="cobrar-row-<?= esc($clienteUuid) ?>">
-                        <span class="aporte-etiqueta">COBRAR : Bs.</span>
-                    <?php if ($ppIdPago !== null): ?>
-                        <input type="number" class="aporte-input mono" min="0.01" step="0.01"
-                               id="cobrar-monto-<?= esc($clienteUuid) ?>"
-                               data-cuota="<?= esc(number_format((float) $ppCuotaFija, 2, '.', '')) ?>"
-                               value="<?= esc(number_format((float) $ppCuotaFija, 2, '.', '')) ?>">
-                        <button class="btn-accion" title="Cobrar cuota (transferencia ACH)"
-                                onclick="debitarCliente('<?= esc($clienteUuid) ?>','<?= esc((string)$ppIdPago) ?>')">💶</button>
-                    <?php elseif ($lpCantidad > 0): ?>
-                        <span class="aporte-estado mono">0.00</span>
-                    <?php else: ?>
-                        <span class="aporte-estado" style="color:#555c7a">—</span>
-                    <?php endif; ?>
-                    </div>
-                    <div class="aporte-fila" id="debito-row-<?= esc($clienteUuid) ?>">
+                    <div class="aporte-fila">
                         <span class="aporte-etiqueta">DEBITAR : Bs.</span>
-                    <?php if ($debIdPago === null): ?>
-                        <input type="number" class="aporte-input mono" disabled>
-                        <button class="btn-accion" disabled title="El cliente no tiene cuotas donde registrar el débito">🏧</button>
-                    <?php elseif ($debMonto !== null): ?>
-                        <input type="number" class="aporte-input mono" disabled
-                               value="<?= esc(number_format((float) $debMonto, 2, '.', '')) ?>">
-                        <button class="btn-accion" disabled title="Esta cuota ya tiene un débito registrado">🏧</button>
+                        <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
+                               id="debitar-monto-<?= $uuidJs ?>" oninput="recalcAporte('<?= $uuidJs ?>')"
+                               <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
+                    <?php if ($atmBloqueo !== null): ?>
+                        <button class="btn-accion" disabled title="<?= esc($atmBloqueo) ?>">🏧</button>
                     <?php else: ?>
-                        <input type="number" class="aporte-input mono" min="0.01" step="0.01" placeholder="0.00"
-                               id="debito-monto-<?= esc($clienteUuid) ?>">
-                        <button class="btn-accion" title="Debitar monto adicional (transferencia ACH)"
-                                onclick="debitarExtra('<?= esc($clienteUuid) ?>','<?= esc((string)$debIdPago) ?>')">🏧</button>
+                        <button class="btn-accion" title="Debitar (Transferencia a Terceros a la cuenta oficina)"
+                                onclick="ejecutarAporte('<?= $uuidJs ?>','<?= esc((string) $ppIdPago) ?>')">🏧</button>
                     <?php endif; ?>
                     </div>
+                    <div class="aporte-fila">
+                        <span class="aporte-etiqueta">DEVOLUCION : Bs.</span>
+                        <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
+                               id="devolucion-monto-<?= $uuidJs ?>" oninput="recalcAporte('<?= $uuidJs ?>')"
+                               <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
+                        <span></span>
+                    </div>
+                    <div class="aporte-fila">
+                        <span class="aporte-etiqueta">APORTE : Bs.</span>
+                        <span class="aporte-estado aporte-calc mono" id="aporte-calc-<?= $uuidJs ?>">0.00</span>
+                    </div>
+                    <div class="aporte-resultado" id="aporte-resultado-<?= $uuidJs ?>"></div>
                 <?php endif; ?>
                 </td>
 
@@ -2747,11 +2755,14 @@ header('Content-Type: text/html; charset=utf-8');
                 ? `<span class="val-prog">${fmtMoney(c.saldo_deudor)}</span><br><span class="val-real${isLate ? ' late' : ''}">${fmtMoney(c.saldo_deudor_real)}</span>`
                 : fmtMoney(c.saldo_deudor);
 
-            // TRANSF.: monto cobrado y, si hubo DEBITAR, tres filas: monto debitado, cuota a
-            // restar (editable hasta aceptar la devolución) y DEV = débito − cuota.
+            // TRANSF.: monto cobrado y, si hubo débito, tres filas: monto debitado, cuota a
+            // restar y DEV = débito − cuota. El ATM ya fija la cuota (= APORTE) y registra la
+            // devolución al transferir; la edición y el ✅ quedan para débitos del flujo anterior.
             const cerrado      = !!c.nro_envio_transferencia;
             const hayDebito    = c.debito != null;
             const devAceptada  = c.devolucion_uuid != null;
+            const cuotaFijada  = devAceptada || cerrado;
+            const hayDev       = parseFloat(c.dev ?? 0) > 0;
             const cuotaVigente = parseFloat(c.cuota_editada ?? c.cuota_fija).toFixed(2);
             const debitoTitle  = hayDebito
                 ? `Débito · N° ${c.nro_envio_debito ?? '—'} · ${c.fecha_debito_extra ? fmtDate(c.fecha_debito_extra) : '—'}`
@@ -2760,14 +2771,14 @@ header('Content-Type: text/html; charset=utf-8');
             const debitoHtml = hayDebito
                 ? `<span title="${debitoTitle}">${fmtMoney(c.debito)}</span>` +
                   `<br><input type="number" class="pago-cuota-input mono" min="0.01" step="0.01"` +
-                  ` title="${devAceptada ? 'Devolución registrada: cuota no editable' : 'Cuota a restar del débito'}"${devAceptada ? ' disabled' : ''}` +
+                  ` title="${cuotaFijada ? 'Cuota no editable' : 'Cuota a restar del débito'}"${cuotaFijada ? ' disabled' : ''}` +
                   ` data-id="${c.id_pago}" data-original="${cuotaVigente}" value="${cuotaVigente}">` +
                   `<br><span class="val-debito">DEV ${fmtMoney(c.dev)}</span>`
                 : '';
             const transfHtml = [cobroHtml, debitoHtml].filter(Boolean).join('<br>') || '—';
 
             let accionHtml;
-            if (hayDebito && !devAceptada) {
+            if (hayDebito && hayDev && !devAceptada) {
                 accionHtml = `<button class="btn-accion btn-acepta-dev" data-id="${c.id_pago}"
                         title="Aceptar y registrar la devolución">✅</button>`;
             } else if (devAceptada) {
@@ -2941,12 +2952,14 @@ header('Content-Type: text/html; charset=utf-8');
         }
     }
 
-    // ── Debitar (transferencia ACH a cuentaOficina) ──────────────
+    // ── ATM: DEBITAR − DEVOLUCIÓN = APORTE (Transferencia a Terceros a cuentaOficina) ──
     async function consultaSaldoLigada(uuid, idPago, tipo) {
         const fd = new FormData();
         fd.append('uuid', uuid);
-        fd.append('id_pago', idPago);
-        fd.append('tipo', tipo);
+        if (idPago) {
+            fd.append('id_pago', idPago);
+            fd.append('tipo', tipo);
+        }
         const ctrl = new AbortController();
         const tout = setTimeout(() => ctrl.abort(), 185000);
         const res  = await fetch('/gyrosfe/api/consulta_saldo.php', { method: 'POST', body: fd, signal: ctrl.signal });
@@ -2954,72 +2967,135 @@ header('Content-Type: text/html; charset=utf-8');
         return res.json();
     }
 
-    async function postDebitar(idPago, monto, tipo) {
+    async function postDebitar(uuid, monto, devolucion) {
         const fd = new FormData();
-        fd.append('id_pago', idPago);
+        fd.append('uuid', uuid);
         fd.append('monto', monto.toFixed(2));
-        fd.append('tipo', tipo);
+        fd.append('devolucion', devolucion.toFixed(2));
         const ctrl = new AbortController();
         const tout = setTimeout(() => ctrl.abort(), 300000);
-        const res  = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
-        clearTimeout(tout);
-        return res.json();
+        try {
+            const res = await fetch('/gyrosfe/api/debitar.php', { method: 'POST', body: fd, signal: ctrl.signal });
+            return await res.json();
+        } catch (err) {
+            // Sin respuesta del servidor no se sabe si el agente llegó a transferir
+            return { ok: false, transferencia_incierta: true, error: 'sin respuesta del servidor (' + err.message + ')' };
+        } finally {
+            clearTimeout(tout);
+        }
     }
 
-    function aporteResultadoHtml(etiqueta, data) {
-        return `<span class="aporte-etiqueta">${etiqueta} : Bs.</span>` +
-            `<span class="aporte-estado">` +
-                `<span style="color:#34d399;font-weight:700">${parseFloat(data.monto).toFixed(2)}</span>` +
-                (data.dev != null ? ` <span class="val-debito">DEV ${parseFloat(data.dev).toFixed(2)}</span>` : '') +
-                `<div class="small mono" style="color:#9aa0b8">N° ${data.numero_envio}</div>` +
-            `</span>`;
+    function leerCentavos(input) {
+        const v = parseFloat(input?.value ?? '');
+        return isNaN(v) ? NaN : Math.round(v * 100);
     }
 
-    async function debitarCliente(uuid, idPago) {
-        const cell       = document.getElementById(`debitar-cell-${uuid}`);
-        const row        = document.getElementById(`cobrar-row-${uuid}`);
-        const saldoCell  = document.getElementById(`saldo-cell-${uuid}`);
-        const montoInput = document.getElementById(`cobrar-monto-${uuid}`);
-        const monto      = parseFloat(montoInput?.value ?? '');
+    function recalcAporte(uuid) {
+        const debitarCts    = leerCentavos(document.getElementById(`debitar-monto-${uuid}`));
+        const devolucionCts = leerCentavos(document.getElementById(`devolucion-monto-${uuid}`));
+        const out = document.getElementById(`aporte-calc-${uuid}`);
+        if (!out) return;
+        const aporteCts = (isNaN(debitarCts) ? 0 : debitarCts) - (isNaN(devolucionCts) ? 0 : devolucionCts);
+        out.textContent = (aporteCts / 100).toFixed(2);
+        out.classList.toggle('negativo', aporteCts < 0);
+    }
 
-        if (!monto || monto <= 0) {
-            alert('El monto a transferir no puede ser cero.');
-            montoInput?.focus();
+    function aporteResultadoHtml(data) {
+        const partes = [];
+        if (parseFloat(data.aporte) > 0)     partes.push(`Aporte ${parseFloat(data.aporte).toFixed(2)}`);
+        if (parseFloat(data.devolucion) > 0) partes.push(`<span class="val-debito">DEV ${parseFloat(data.devolucion).toFixed(2)}</span>`);
+        return `<span style="color:#34d399;font-weight:700">Debitado ${parseFloat(data.monto).toFixed(2)}</span>` +
+            (partes.length ? ` · ${partes.join(' · ')}` : '') +
+            `<div class="small mono" style="color:#9aa0b8">N° ${data.numero_envio}</div>`;
+    }
+
+    async function ejecutarAporte(uuid, idPagoPendiente) {
+        const cell            = document.getElementById(`debitar-cell-${uuid}`);
+        const saldoCell       = document.getElementById(`saldo-cell-${uuid}`);
+        const debitarInput    = document.getElementById(`debitar-monto-${uuid}`);
+        const devolucionInput = document.getElementById(`devolucion-monto-${uuid}`);
+        const resultado       = document.getElementById(`aporte-resultado-${uuid}`);
+        const debitarCts      = leerCentavos(debitarInput);
+        const devolucionCts   = leerCentavos(devolucionInput);
+
+        if (isNaN(debitarCts) || debitarCts <= 0) {
+            alert('El monto a DEBITAR debe ser mayor a cero.');
+            debitarInput?.focus();
             return;
         }
-        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
+        if (isNaN(devolucionCts) || devolucionCts < 0) {
+            alert('La DEVOLUCION no puede ser negativa.');
+            devolucionInput?.focus();
+            return;
+        }
+        const aporteCts = debitarCts - devolucionCts;
+        if (aporteCts < 0) {
+            alert('El APORTE no puede ser negativo: la DEVOLUCION supera el monto a DEBITAR.');
+            devolucionInput?.focus();
+            return;
+        }
+        if (aporteCts > 0 && !idPagoPendiente) {
+            alert('El cliente no tiene cuotas pendientes donde registrar el APORTE.');
             return;
         }
 
+        const monto      = debitarCts / 100;
+        const devolucion = devolucionCts / 100;
+        const aporte     = aporteCts / 100;
+        if (!confirm(
+            `¿Está seguro de continuar con la transferencia?\n\n` +
+            `Debitar: Bs. ${monto.toFixed(2)}\n` +
+            `Devolución: Bs. ${devolucion.toFixed(2)}\n` +
+            `Aporte (pago a la cuota): Bs. ${aporte.toFixed(2)}`
+        )) {
+            return;
+        }
+
+        // El saldo antes/después se liga a la cuota solo si el aporte la paga
+        const idPagoSaldo = aporteCts > 0 ? idPagoPendiente : '';
         let secs = 0;
         let fase = 'Consultando saldo (antes)';
-        const originalCobrar = row       ? row.innerHTML       : '';
-        const originalSaldo  = saldoCell ? saldoCell.innerHTML : '';
+        const originalSaldo = saldoCell ? saldoCell.innerHTML : '';
         const renderProgreso = () => {
             const html = `<span style="color:#9aa0b8;font-size:.78rem">${fase}… ${secs}s</span>`;
-            if (row)       row.innerHTML       = `<span class="aporte-etiqueta">COBRAR : Bs.</span><span class="aporte-estado">${html}</span>`;
+            if (resultado) resultado.innerHTML = html;
             if (saldoCell) saldoCell.innerHTML = html;
         };
         cell?.classList.add('aporte-ocupado');
         renderProgreso();
         const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
 
+        let transferido = false;
         try {
-            // 1) Saldo ANTES del cobro
-            const antes = await consultaSaldoLigada(uuid, idPago, 'antes');
+            // 1) Saldo ANTES
+            const antes = await consultaSaldoLigada(uuid, idPagoSaldo, 'antes');
             if (!antes.ok) throw new Error('Saldo (antes): ' + (antes.error ?? 'desconocido'));
 
-            // 2) Cobro ACH
-            fase = 'Cobrando';
-            const data = await postDebitar(idPago, monto, 'cobrar');
-            if (!data.ok) throw new Error('Cobro: ' + (data.error ?? 'desconocido'));
+            // 2) Transferencia por el monto total a DEBITAR
+            fase = 'Debitando';
+            const data = await postDebitar(uuid, monto, devolucion);
+            if (!data.ok) {
+                transferido = !!(data.transferencia_incierta || data.transferencia_realizada);
+                throw new Error(data.error ?? 'desconocido');
+            }
+            transferido = true;
+            if (debitarInput)    debitarInput.value    = '0.00';
+            if (devolucionInput) devolucionInput.value = '0.00';
+            recalcAporte(uuid);
+            if (resultado) resultado.innerHTML = aporteResultadoHtml(data);
+            if (aporteCts > 0) {
+                // La cuota quedó pagada: el id ligado al botón ya no es la cuota pendiente
+                cell?.querySelectorAll('input, button').forEach(el => {
+                    el.disabled = true;
+                    el.title    = 'Cuota pagada: recargar la página para el siguiente débito';
+                });
+            }
 
-            // 3) Saldo DESPUÉS del cobro
+            // 3) Saldo DESPUÉS
             fase = 'Consultando saldo (después)';
-            const despues = await consultaSaldoLigada(uuid, idPago, 'despues');
+            const despues = await consultaSaldoLigada(uuid, idPagoSaldo, 'despues');
             if (!despues.ok) throw new Error('Saldo (después): ' + (despues.error ?? 'desconocido'));
 
-            if (row) row.innerHTML = aporteResultadoHtml('COBRAR', data);
             if (saldoCell) {
                 const fechaFmt = despues.fecha_hora
                     ? new Date(despues.fecha_hora).toLocaleString('es-BO', {
@@ -3033,56 +3109,17 @@ header('Content-Type: text/html; charset=utf-8');
                     `<div class="small mono" style="color:#7b93ff;margin-top:2px">${parseFloat(antes.saldo).toFixed(2)} → ${parseFloat(despues.saldo).toFixed(2)}</div>`;
             }
         } catch (err) {
-            if (row) {
-                row.innerHTML = originalCobrar;
-                const restaurado = document.getElementById(`cobrar-monto-${uuid}`);
-                if (restaurado) restaurado.value = monto.toFixed(2);
-            }
             if (saldoCell) saldoCell.innerHTML = originalSaldo;
-            alert('Error al cobrar: ' + err.message);
-        } finally {
-            clearInterval(timer);
-            cell?.classList.remove('aporte-ocupado');
-        }
-    }
-
-    // ── Débito adicional: se registra en la cuota, no la marca como pagada ──
-    async function debitarExtra(uuid, idPago) {
-        const cell       = document.getElementById(`debitar-cell-${uuid}`);
-        const row        = document.getElementById(`debito-row-${uuid}`);
-        const montoInput = document.getElementById(`debito-monto-${uuid}`);
-        const monto      = parseFloat(montoInput?.value ?? '');
-
-        if (!monto || monto <= 0) {
-            alert('El monto a transferir no puede ser cero.');
-            montoInput?.focus();
-            return;
-        }
-        if (!confirm(`¿Está seguro de continuar con la transferencia de Bs. ${monto.toFixed(2)}?`)) {
-            return;
-        }
-
-        let secs = 0;
-        const originalDebito = row ? row.innerHTML : '';
-        const renderProgreso = () => {
-            if (row) row.innerHTML = `<span class="aporte-etiqueta">DEBITAR : Bs.</span>` +
-                `<span class="aporte-estado" style="color:#9aa0b8;font-size:.78rem">Debitando… ${secs}s</span>`;
-        };
-        cell?.classList.add('aporte-ocupado');
-        renderProgreso();
-        const timer = setInterval(() => { secs++; renderProgreso(); }, 1000);
-
-        try {
-            const data = await postDebitar(idPago, monto, 'debito');
-            if (!data.ok) throw new Error(data.error ?? 'desconocido');
-            if (row) row.innerHTML = aporteResultadoHtml('DEBITAR', data);
-        } catch (err) {
-            if (row) {
-                row.innerHTML = originalDebito;
-                const restaurado = document.getElementById(`debito-monto-${uuid}`);
-                if (restaurado) restaurado.value = monto.toFixed(2);
+            if (transferido) {
+                if (resultado && !resultado.innerHTML.includes('N°')) {
+                    resultado.innerHTML = `<span style="color:#f87171">Verificar en el banco</span>`;
+                }
+                alert('ATENCIÓN: la transferencia se realizó o pudo haberse realizado. ' +
+                      'NO reintentar sin verificar en el banco y en el journal del agente.\n\n' + err.message);
+            } else {
+                if (resultado) resultado.innerHTML = '';
+                alert('Error al debitar (no se transfirió): ' + err.message);
             }
-            alert('Error al debitar: ' + err.message);
         } finally {
             clearInterval(timer);
             cell?.classList.remove('aporte-ocupado');
