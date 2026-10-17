@@ -85,6 +85,14 @@ try {
     ');
     $stmtUpd->execute([':duuid' => $devolucionUuid, ':dev' => $dev, ':id' => $idPago]);
 
+    // Débito del flujo anterior migrado a "transferencia": la pestaña TRANSFERENCIAS lee de ahí
+    $stmtTr = $pdo->prepare('
+        UPDATE transferencia
+        SET devolucion_uuid = :duuid, devolucion = :dev, aporte = monto_debitado - :dev2
+        WHERE id_pago = :id AND devolucion_uuid IS NULL AND devolucion > 0
+    ');
+    $stmtTr->execute([':duuid' => $devolucionUuid, ':dev' => $dev, ':dev2' => $dev, ':id' => $idPago]);
+
     $pdo->commit();
     echo json_encode(['ok' => true, 'uuid' => $devolucionUuid, 'monto_a_devolver' => $dev]);
 

@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $uuid    = trim((string) ($_POST['uuid']    ?? ''));
 $idPago  = trim((string) ($_POST['id_pago'] ?? ''));
 $tipo    = trim((string) ($_POST['tipo']    ?? ''));
+$nroOperacion = trim((string) ($_POST['nro_operacion'] ?? ''));
 
 if ($uuid === '') {
     jsonErr('UUID requerido');
@@ -27,8 +28,11 @@ if ($uuid === '') {
 if ($tipo !== '' && !in_array($tipo, ['antes', 'despues'], true)) {
     jsonErr('tipo inválido (antes|despues)');
 }
-if ($tipo !== '' && $idPago === '') {
-    jsonErr('id_pago requerido cuando se especifica tipo');
+if ($tipo !== '' && $idPago === '' && $nroOperacion === '') {
+    jsonErr('id_pago o nro_operacion requerido cuando se especifica tipo');
+}
+if ($nroOperacion !== '' && ($tipo !== 'despues' || !ctype_digit($nroOperacion))) {
+    jsonErr('nro_operacion solo admite tipo=despues');
 }
 
 require_once __DIR__ . '/../lib/db_connect.php';
@@ -129,9 +133,18 @@ try {
         ':cid'    => $uuid,
         ':saldo'  => $saldo,
         ':idpago' => $idPago !== '' ? $idPago : null,
-        ':tipo'   => $tipo   !== '' ? $tipo   : null,
+        ':tipo'   => $idPago !== '' && $tipo !== '' ? $tipo : null,
     ]);
     $row = $stmtIns->fetch(PDO::FETCH_ASSOC);
+
+    // Saldo después de un ATM: queda junto al saldo antes en el registro de la transferencia
+    if ($nroOperacion !== '') {
+        $stmtTr = $pdo->prepare('
+            UPDATE transferencia SET saldo_despues = :saldo
+            WHERE nro_operacion = :nro AND cliente_id = :cid
+        ');
+        $stmtTr->execute([':saldo' => $saldo, ':nro' => (int) $nroOperacion, ':cid' => $uuid]);
+    }
 
     echo json_encode([
         'ok'         => true,

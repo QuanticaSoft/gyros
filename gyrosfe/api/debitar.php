@@ -26,12 +26,6 @@ function deCentavos(int $centavos): string
     return number_format($centavos / 100, 2, '.', '');
 }
 
-// Misma regla que es_banco_union del agente (union/config.py)
-function esBancoUnion(string $banco): bool
-{
-    return str_contains(strtoupper(strtr($banco, ['ó' => 'o', 'Ó' => 'O'])), 'UNION');
-}
-
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonErr('Método no permitido', 405);
 }
@@ -61,6 +55,7 @@ $devolucion = deCentavos($devolucionCts);
 $aporte     = deCentavos($aporteCts);
 
 require_once __DIR__ . '/../lib/db_connect.php';
+require_once __DIR__ . '/../lib/atm.php';
 
 try {
     $pdo = db_connect();
@@ -71,7 +66,8 @@ try {
 try {
     // 1. Cliente y su dispositivo
     $stmtCl = $pdo->prepare('
-        SELECT uuid, codigo, nombrecompleto, ci, dispositivo
+        SELECT uuid, codigo, nombrecompleto, ci, dispositivo, numerocelular, sector,
+               vtotarjeta, garantenombre, garantecelular, "isActive"
         FROM "Cliente"
         WHERE uuid = :uuid
         LIMIT 1
@@ -83,6 +79,9 @@ try {
         jsonErr('Cliente no encontrado o sin dispositivo asignado', 404);
     }
 
+    // 2. El ATM ya no paga cuotas ni exige préstamo: cada débito queda en "transferencia".
+    //    Se conserva la búsqueda de la cuota pendiente por si se retoma el plan de pagos.
+    /*
     // 2. Cuota pendiente más próxima (misma regla que la columna Aporte de ui/main.php)
     $stmtPago = $pdo->prepare('
         SELECT pg."id_pago", pg."fecha_pago", pg."nro_envio_transferencia",
@@ -110,6 +109,7 @@ try {
             jsonErr('Esta cuota ya fue cobrada. N° envío: ' . $pago['nro_envio_transferencia'], 409);
         }
     }
+    */
 
     // 3. Cuenta bancaria con nickname = 'pago'
     $stmtBc = $pdo->prepare("
@@ -123,13 +123,14 @@ try {
     $stmtBc->execute([':uuid' => $uuid]);
     $cuenta = $stmtBc->fetch(PDO::FETCH_ASSOC);
 
-    if (!$cuenta) {
-        jsonErr('No se encontró cuenta bancaria con nickname "pago"', 404);
-    }
-    // La cuenta oficina es del Banco Unión y el agente solo sabe debitar desde UNImóvil Plus:
-    // un cliente de otro banco no se puede debitar todavía (haría falta la app de su banco).
-    if (!esBancoUnion((string) ($cuenta['banco'] ?? ''))) {
-        jsonErr('Débito desde ' . ($cuenta['banco'] ?: 'banco sin nombre') . ' aún no soportado: solo cuentas del Banco Unión', 409);
+    // Mismos requisitos que habilitan el 🏧 en el dashboard; la cuenta oficina es del Banco Unión
+    // y el agente solo sabe debitar desde UNImóvil Plus.
+    $bloqueo = atmMotivoBloqueo($cliente, $cuenta ? [
+        'banco'        => (string) ($cuenta['banco'] ?? ''),
+        'credenciales' => trim((string) ($cuenta['usuario'] ?? '')) !== '' && trim((string) ($cuenta['key'] ?? '')) !== '',
+    ] : null);
+    if ($bloqueo !== null) {
+        jsonErr($bloqueo, 409);
     }
 
     // 4. Agente activo para este dispositivo (cada agente tunelado a un puerto local distinto)
@@ -156,7 +157,7 @@ try {
         'nombre_titular' => $cuenta['nombre']   ?? '',
         'dispositivo'    => $cliente['dispositivo'],
         'monto'          => $monto,
-        'fecha_pago'     => $pago['fecha_pago'] ?? date('Y-m-d'),
+        'fecha_pago'     => date('Y-m-d'),
     ]);
 
     $ch = curl_init("http://127.0.0.1:{$agentPort}/debitar");
@@ -222,6 +223,37 @@ try {
         $devolucionUuid = $stmtIns->fetchColumn();
     }
 
+    // El "saldo antes" lo acaba de grabar api/consulta_saldo.php desde el mismo ATM
+    $stmtSaldo = $pdo->prepare('
+        SELECT saldo FROM saldo
+        WHERE cliente_id = :cid AND fecha_hora >= NOW() - INTERVAL \'10 minutes\'
+        ORDER BY fecha_hora DESC
+        LIMIT 1
+    ');
+    $stmtSaldo->execute([':cid' => $uuid]);
+    $saldoAntes = $stmtSaldo->fetchColumn();
+
+    $stmtTr = $pdo->prepare('
+        INSERT INTO transferencia
+            (cliente_id, monto_debitado, devolucion, aporte, nro_envio, devolucion_uuid, saldo_antes)
+        VALUES
+            (:cid, :debitado, :devolucion, :aporte, :nro, :duuid, :saldo)
+        RETURNING nro_operacion
+    ');
+    $stmtTr->execute([
+        ':cid'        => $uuid,
+        ':debitado'   => $monto,
+        ':devolucion' => $devolucion,
+        ':aporte'     => $aporte,
+        ':nro'        => $numeroEnvio,
+        ':duuid'      => $devolucionUuid,
+        ':saldo'      => $saldoAntes === false ? null : $saldoAntes,
+    ]);
+    $nroOperacion = (int) $stmtTr->fetchColumn();
+
+    // El aporte ya no se aplica a una cuota del plan de pagos (el ATM no exige préstamo).
+    // Se conserva el cálculo de amortización real por si se retoma.
+    /*
     // Con APORTE = 0 no hay pago al préstamo: la transferencia queda solo en "devoluciones"
     if ($aporteCts > 0) {
         $today = new DateTimeImmutable('today');
@@ -294,6 +326,7 @@ try {
         $stmtUpd = $pdo->prepare('UPDATE "pago" SET ' . implode(', ', $sets) . ' WHERE "id_pago" = :id');
         $stmtUpd->execute($params);
     }
+    */
 
     $pdo->commit();
 } catch (Throwable $e) {
@@ -312,6 +345,6 @@ echo json_encode([
     'monto'           => $monto,
     'devolucion'      => $devolucion,
     'aporte'          => $aporte,
-    'id_pago'         => $aporteCts > 0 ? $pago['id_pago'] : null,
+    'nro_operacion'   => $nroOperacion,
     'devolucion_uuid' => $devolucionUuid,
 ]);
