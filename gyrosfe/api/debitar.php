@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/auth.php';
 auth_require_login();
+// La automatización tarda minutos: sin soltar el lock de la sesión, PHP atiende en serie
+// las demás peticiones del mismo navegador (p. ej. saldo de otro teléfono a la vez)
+session_write_close();
 
 header('Content-Type: application/json; charset=utf-8');
 
