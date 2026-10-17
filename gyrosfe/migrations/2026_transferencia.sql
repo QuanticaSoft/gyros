@@ -9,7 +9,8 @@
 -- Ejecutar manualmente via psql (ver 2026_agent_tunnel_port.sql), dentro de BEGIN/COMMIT,
 -- revisando antes el resultado del SELECT de verificación del final.
 --
--- Aplicado: (pendiente)
+-- Aplicado: 2026-10-17 (9 transferencias migradas). Una segunda corrida abortada por la verificación
+-- consumió los nro_operacion 10–18 de la secuencia: el primer ATM nuevo es el #19.
 
 -- UP
 -- cliente_id e id_pago toman el tipo real de "Cliente".uuid y "pago".id_pago
@@ -44,7 +45,8 @@ CREATE INDEX IF NOT EXISTS transferencia_cliente_idx ON transferencia (cliente_i
 
 ALTER TABLE devoluciones ADD COLUMN IF NOT EXISTS fecha_devolucion DATE;
 
--- Backfill: una fila por N° de envío ya cobrado, numeradas en orden cronológico
+-- Backfill: una fila por N° de envío ya cobrado, numeradas en orden cronológico.
+-- Solo con la tabla vacía, para que volver a correr el archivo no duplique filas.
 INSERT INTO transferencia
     (cliente_id, fecha, monto_debitado, devolucion, aporte, nro_envio, devolucion_uuid, id_pago,
      saldo_antes, saldo_despues)
@@ -104,6 +106,7 @@ FROM (
           WHERE pg."nro_envio_transferencia" = d.nro_envio OR pg."nro_envio_debito" = d.nro_envio
       )
 ) t
+WHERE NOT EXISTS (SELECT 1 FROM transferencia)
 ORDER BY t.fecha NULLS FIRST, t.nro;
 
 -- Verificación (antes de COMMIT): cada N° de envío una sola vez y montos cuadrados
