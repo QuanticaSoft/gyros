@@ -791,7 +791,13 @@ header('Content-Type: text/html; charset=utf-8');
         .val-real { font-size: .80rem; color: #7b93ff; font-weight: 600; }
         .val-real.late { color: #f87171; }
         .val-debito { font-size: .80rem; color: #fbbf24; font-weight: 600; }
-        .transf-lineas { text-align: right; line-height: 1.5; }
+        .transf-lineas { line-height: 1.5; }
+        .transf-fila { display: flex; gap: 16px; white-space: nowrap; }
+        /* flex:1 en los tres para que el del medio quede centrado aunque los textos tengan anchos distintos */
+        .transf-fila > div { flex: 1; }
+        .transf-fila > div:nth-child(1) { text-align: left; }
+        .transf-fila > div:nth-child(2) { text-align: center; }
+        .transf-fila > div:nth-child(3) { text-align: right; }
         .transf-etq { color: #9aa0b8; font-weight: 400; }
         .transf-totales td { border-top: 2px solid #2a2f45; }
         .transf-totales .transf-lineas, .transf-totales .transf-etq { color: #fb923c; font-weight: 700; }
@@ -2848,11 +2854,11 @@ header('Content-Type: text/html; charset=utf-8');
             return `<tr>
                 <td class="mono">${t.nro_operacion}</td>
                 <td>${fmtDate(t.fecha)}</td>
-                <td class="transf-lineas">
+                <td class="transf-lineas"><div class="transf-fila">
                     <div><span class="transf-etq">Débito:</span> ${fmtMoney(t.monto_debitado)}</div>
                     <div class="${dev > 0 ? 'val-debito' : ''}"><span class="transf-etq">Devolución:</span> ${fmtMoney(t.devolucion)}</div>
                     <div class="val-real"><span class="transf-etq">Aporte:</span> ${fmtMoney(t.aporte)}</div>
-                </td>
+                </div></td>
                 <td class="mono">${t.nro_envio ?? '—'}</td>
                 <td style="text-align:center">${accionHtml}</td>
             </tr>`;
@@ -2861,11 +2867,11 @@ header('Content-Type: text/html; charset=utf-8');
         const total = campo => lista.reduce((s, t) => s + num(t[campo]), 0);
         const filaTotales = `<tr class="transf-totales">
             <td colspan="2"></td>
-            <td class="transf-lineas">
+            <td class="transf-lineas"><div class="transf-fila">
                 <div><span class="transf-etq">Transferencia:</span> Bs ${total('monto_debitado').toFixed(2)}</div>
-                <div><span class="transf-etq">Pagos:</span> Bs ${total('aporte').toFixed(2)}</div>
                 <div><span class="transf-etq">Devoluciones:</span> Bs ${total('devolucion').toFixed(2)}</div>
-            </td>
+                <div><span class="transf-etq">Pagos:</span> Bs ${total('aporte').toFixed(2)}</div>
+            </div></td>
             <td colspan="2"></td>
         </tr>`;
 
@@ -2874,7 +2880,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <thead><tr>
                     <th>#</th>
                     <th>FECHA</th>
-                    <th>TRANSF.</th>
+                    <th>DETALLE TRANSFERENCIA</th>
                     <th>N° ENVÍO</th>
                     <th>ACCIONES</th>
                 </tr></thead>
