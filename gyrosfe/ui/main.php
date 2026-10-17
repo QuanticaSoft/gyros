@@ -22,6 +22,7 @@ date_default_timezone_set('UTC');
 $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
 require_once __DIR__ . '/../lib/db_connect.php';
+require_once __DIR__ . '/../lib/atm.php';
 
 try {
     $pdo = db_connect();
@@ -74,6 +75,7 @@ SELECT
   bc.usuario                               AS bc_usuario,
   bc.key                                   AS bc_key,
   bcp.banco                                AS bcp_banco,
+  bcp.credenciales                         AS bcp_credenciales,
 
   sl.saldo                                 AS sl_saldo,
   sl.fecha_hora                            AS sl_fecha_hora,
@@ -126,8 +128,10 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) bc ON true
 LEFT JOIN LATERAL (
-    -- Cuenta desde la que se debita (misma que usa api/debitar.php)
-    SELECT bc.banco
+    -- Cuenta desde la que se debita (misma que usa api/debitar.php); de las credenciales
+    -- solo importa si están configuradas
+    SELECT COALESCE(bc.banco, '') AS banco,
+           (trim(COALESCE(bc.usuario, '')) <> '' AND trim(COALESCE(bc.key, '')) <> '') AS credenciales
     FROM "banco_cliente" bc
     WHERE bc."clienteIdCliente" = cl.uuid
       AND lower(bc.nickname) = 'pago'
@@ -141,6 +145,15 @@ LEFT JOIN LATERAL (
     ORDER BY s.fecha_hora DESC
     LIMIT 1
 ) sl ON true
+LEFT JOIN LATERAL (
+    -- Saldo antes → después del último ATM del cliente
+    SELECT t.saldo_antes AS sld_antes, t.saldo_despues AS sld_despues
+    FROM transferencia t
+    WHERE t.cliente_id = cl.uuid
+    ORDER BY t.nro_operacion DESC
+    LIMIT 1
+) sd ON true
+/* Antes el par antes/después salía de la última cuota pagada; el ATM ya no paga cuotas.
 LEFT JOIN LATERAL (
     -- Última cuota debitada (pagada) del cliente, para mostrar su par antes/después
     SELECT pg.id_pago
@@ -159,6 +172,7 @@ LEFT JOIN LATERAL (
     FROM saldo s
     WHERE s.id_pago = lastpaid.id_pago
 ) sd ON true
+*/
 LEFT JOIN LATERAL (
     SELECT
         SUM(pr.monto_prestado)::numeric                                              AS lp_total,
@@ -777,6 +791,10 @@ header('Content-Type: text/html; charset=utf-8');
         .val-real { font-size: .80rem; color: #7b93ff; font-weight: 600; }
         .val-real.late { color: #f87171; }
         .val-debito { font-size: .80rem; color: #fbbf24; font-weight: 600; }
+        .transf-lineas { text-align: right; line-height: 1.5; }
+        .transf-etq { color: #9aa0b8; font-weight: 400; }
+        .transf-totales td { border-top: 2px solid #2a2f45; }
+        .transf-totales .transf-lineas, .transf-totales .transf-etq { color: #fb923c; font-weight: 700; }
         .pago-table th .th-pr {
             font-size: .58rem; color: #555c7a;
             font-weight: 400; letter-spacing: .02em;
@@ -1175,23 +1193,26 @@ header('Content-Type: text/html; charset=utf-8');
                 ?>
                 <td class="mono" style="white-space:nowrap"><?= $cuotaHtml ?></td>
 
-                <!-- Aporte: DEBITAR − DEVOLUCIÓN = APORTE (pago a la cuota pendiente) -->
+                <!-- Aporte: DEBITAR − DEVOLUCIÓN = APORTE (no exige préstamo; queda en "transferencia") -->
                 <?php
-                    $ppIdPago = $r['pp_id_pago'] ?? null;
-                    $bcpBanco = (string) ($r['bcp_banco'] ?? '');
-                    // Misma regla que esBancoUnion() de api/debitar.php
-                    $esUnion  = str_contains(strtoupper(strtr($bcpBanco, ['ó' => 'o', 'Ó' => 'O'])), 'UNION');
-                    if ($bcpBanco === '') {
-                        $atmBloqueo = 'El cliente no tiene cuenta bancaria "pago" activa';
-                    } elseif (!$esUnion) {
-                        $atmBloqueo = "Débito desde {$bcpBanco} aún no soportado: solo cuentas del Banco Unión";
-                    } else {
-                        $atmBloqueo = null;
-                    }
+                    $atmBloqueo = $registrado ? atmMotivoBloqueo([
+                        'isActive'       => $r['cl_activo']         ?? false,
+                        'nombrecompleto' => $r['cl_nombre']         ?? '',
+                        'ci'             => $r['cl_ci']             ?? '',
+                        'numerocelular'  => $r['cl_celular']        ?? '',
+                        'sector'         => $r['cl_sector']         ?? '',
+                        'codigo'         => $r['cl_codigo']         ?? '',
+                        'vtotarjeta'     => $r['cl_vtotarjeta']     ?? '',
+                        'garantenombre'  => $r['cl_garantenombre']  ?? '',
+                        'garantecelular' => $r['cl_garantecelular'] ?? '',
+                    ], $r['bcp_banco'] !== null ? [
+                        'banco'        => (string) $r['bcp_banco'],
+                        'credenciales' => filter_var($r['bcp_credenciales'], FILTER_VALIDATE_BOOLEAN),
+                    ] : null) : null;
                     $uuidJs = esc($clienteUuid);
                 ?>
                 <td id="debitar-cell-<?= $uuidJs ?>">
-                <?php if (!$registrado || $lpCantidad === 0): ?>
+                <?php if (!$registrado): ?>
                     <span style="color:#555c7a">—</span>
                 <?php else: ?>
                     <div class="aporte-fila">
@@ -1203,7 +1224,7 @@ header('Content-Type: text/html; charset=utf-8');
                         <button class="btn-accion" disabled title="<?= esc($atmBloqueo) ?>">🏧</button>
                     <?php else: ?>
                         <button class="btn-accion" title="Debitar (Transferencia a Terceros a la cuenta oficina)"
-                                onclick="ejecutarAporte('<?= $uuidJs ?>','<?= esc((string) $ppIdPago) ?>')">🏧</button>
+                                onclick="ejecutarAporte('<?= $uuidJs ?>')">🏧</button>
                     <?php endif; ?>
                     </div>
                     <div class="aporte-fila">
@@ -1518,6 +1539,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <li class="active" data-tab="tab-general">GENERAL</li>
                     <li data-tab="tab-prestamos">PRESTAMOS</li>
                     <li data-tab="tab-pagos">PAGOS</li>
+                    <li data-tab="tab-transferencias">TRANSFERENCIAS</li>
                     <li data-tab="tab-banco">BANCO</li>
                 </ul>
             </div>
@@ -1641,6 +1663,14 @@ header('Content-Type: text/html; charset=utf-8');
                         <span>⏳</span>Cargando pagos…
                     </div>
                     <div id="pagos-content"></div>
+                </div>
+
+                <!-- ── TRANSFERENCIAS (registro del ATM) ─────────── -->
+                <div id="tab-transferencias" class="tab-panel">
+                    <div id="transf-loading" class="tab-placeholder" style="display:none">
+                        <span>⏳</span>Cargando transferencias…
+                    </div>
+                    <div id="transf-content"></div>
                 </div>
 
                 <!-- ── BANCO ─────────────────────────────────────── -->
@@ -1857,6 +1887,27 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
     </div>
 
+    <!-- Detalle de la devolución de una transferencia (pestaña TRANSFERENCIAS) -->
+    <div id="modal-devolucion-detalle" class="modal-float" role="dialog" aria-modal="true">
+        <div class="modal-float-box" style="max-width:820px;width:95%">
+            <button class="mf-close" onclick="cerrarModalFloat('modal-devolucion-detalle')">✕</button>
+            <h3 id="dd-titulo">↩️ Devolución</h3>
+            <div id="dd-tabla"></div>
+            <input type="hidden" id="dd-uuid">
+            <label class="mf-label">Modo de devolución</label>
+            <select id="dd-modo" class="mf-input">
+                <option value="Efectivo">Efectivo</option>
+                <option value="Transferencia">Transferencia</option>
+            </select>
+            <label class="mf-label">Fecha de devolución</label>
+            <input type="date" id="dd-fecha" class="mf-input">
+            <div class="mf-actions">
+                <button class="btn-cancel" onclick="cerrarModalFloat('modal-devolucion-detalle')">Cancelar</button>
+                <button class="btn-primary" id="dd-btn-completar" onclick="completarDevolucion()">Completar devolución</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Scripts ───────────────────────────────────────────────── -->
     <script>
     // ── Filtro de búsqueda ───────────────────────────────────────
@@ -2046,6 +2097,37 @@ header('Content-Type: text/html; charset=utf-8');
         }
     });
 
+    // Tabla de devoluciones: la usan el buscador de la barra y el detalle de la pestaña TRANSFERENCIAS
+    function renderTablaDevoluciones(lista) {
+        const columnas = [
+            ['CÓDIGO',           d => d.codigo_cliente  ?? '—'],
+            ['NOMBRE',           d => d.nombre_cliente  ?? '—'],
+            ['CI',               d => d.ci_cliente      ?? '—'],
+            ['MONTO',            d => fmtMoney(d.monto_a_devolver)],
+            ['FECHA COBRO',      d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito) : '—'],
+            ['MODO',             d => d.modo_devolucion ?? '—'],
+            ['ESTADO',           d => d.estado          ?? '—'],
+            ['FECHA DEVOLUCIÓN', d => d.fecha_devolucion ? fmtDate(d.fecha_devolucion) : '—'],
+        ];
+        const wrap  = document.createElement('div');
+        wrap.className = 'pago-table-wrap';
+        const tabla = document.createElement('table');
+        tabla.className = 'pago-table';
+        const trHead = tabla.createTHead().insertRow();
+        columnas.forEach(([nombre]) => {
+            const th = document.createElement('th');
+            th.textContent = nombre;
+            trHead.appendChild(th);
+        });
+        const tbody = tabla.createTBody();
+        lista.forEach(d => {
+            const tr = tbody.insertRow();
+            columnas.forEach(([, valor]) => { tr.insertCell().textContent = valor(d); });
+        });
+        wrap.appendChild(tabla);
+        return wrap;
+    }
+
     // ── Buscador de devoluciones por CI o código ─────────────────
     async function buscarDevoluciones() {
         const input = document.getElementById('devol-ci');
@@ -2074,32 +2156,7 @@ header('Content-Type: text/html; charset=utf-8');
                 p.textContent = 'No existe ningún registro de devolución para este CI o código.';
                 contenido.appendChild(p);
             } else {
-                const columnas = [
-                    ['CÓDIGO',        d => d.codigo_cliente  ?? '—'],
-                    ['NOMBRE',        d => d.nombre_cliente  ?? '—'],
-                    ['CI',            d => d.ci_cliente      ?? '—'],
-                    ['MONTO',         d => fmtMoney(d.monto_a_devolver)],
-                    ['FECHA COBRO',   d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito.substring(0, 10)) : '—'],
-                    ['MODO',          d => d.modo_devolucion ?? '—'],
-                    ['ESTADO',        d => d.estado          ?? '—'],
-                ];
-                const wrap  = document.createElement('div');
-                wrap.className = 'pago-table-wrap';
-                const tabla = document.createElement('table');
-                tabla.className = 'pago-table';
-                const trHead = tabla.createTHead().insertRow();
-                columnas.forEach(([nombre]) => {
-                    const th = document.createElement('th');
-                    th.textContent = nombre;
-                    trHead.appendChild(th);
-                });
-                const tbody = tabla.createTBody();
-                data.data.forEach(d => {
-                    const tr = tbody.insertRow();
-                    columnas.forEach(([, valor]) => { tr.insertCell().textContent = valor(d); });
-                });
-                wrap.appendChild(tabla);
-                contenido.appendChild(wrap);
+                contenido.appendChild(renderTablaDevoluciones(data.data));
             }
             abrirModal('modal-devoluciones');
         } catch (err) {
@@ -2277,6 +2334,7 @@ header('Content-Type: text/html; charset=utf-8');
         // Cargar datos dinámicos según tab
         if (tabId === 'tab-prestamos' && _regUuid) cargarPrestamos(_regUuid);
         if (tabId === 'tab-pagos'     && _regUuid) cargarPagos(_regUuid);
+        if (tabId === 'tab-transferencias' && _regUuid) cargarTransferencias(_regUuid);
         if (tabId === 'tab-banco'     && _regUuid) cargarBanco(_regUuid);
     }
 
@@ -2718,6 +2776,164 @@ header('Content-Type: text/html; charset=utf-8');
         return c.estado;
     }
 
+    let _transferencias = [];
+
+    async function cargarTransferencias(uuid) {
+        const loading = document.getElementById('transf-loading');
+        const content = document.getElementById('transf-content');
+        content.innerHTML = '';
+        loading.style.display = 'flex';
+        try {
+            const res  = await fetch(`/gyrosfe/api/transferencias_listar.php?uuid=${encodeURIComponent(uuid)}`);
+            const json = await res.json();
+            loading.style.display = 'none';
+            if (!json.ok) { content.innerHTML = `<p style="color:#f87171;padding:20px">Error: ${json.error}</p>`; return; }
+            _transferencias = json.data;
+            if (json.data.length === 0) {
+                content.innerHTML = '<div class="tab-placeholder"><span>🏧</span>No hay transferencias registradas.</div>';
+                return;
+            }
+            content.innerHTML = renderTransferencias(json.data);
+            content.querySelectorAll('.btn-ver-dev').forEach(btn => {
+                btn.addEventListener('click', () => abrirDetalleDevolucion(btn.dataset.nro));
+            });
+            // Débito del flujo anterior: registrar su DEV crea la fila en "devoluciones"
+            content.querySelectorAll('.btn-acepta-dev').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const dev = this.closest('tr')?.querySelector('.val-debito')?.textContent ?? 'DEV';
+                    if (!confirm(`¿Registrar la devolución (${dev})?`)) return;
+                    this.disabled = true;
+                    try {
+                        const fd = new FormData();
+                        fd.append('id_pago', this.dataset.id);
+                        const res  = await fetch('/gyrosfe/api/devolucion_crear.php', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.ok) {
+                            await cargarTransferencias(_regUuid);
+                        } else {
+                            alert('Error al registrar la devolución: ' + (data.error ?? 'desconocido'));
+                            this.disabled = false;
+                        }
+                    } catch(e) {
+                        alert('Error de red: ' + e.message);
+                        this.disabled = false;
+                    }
+                });
+            });
+        } catch(err) {
+            loading.style.display = 'none';
+            content.innerHTML = `<p style="color:#f87171;padding:20px">Error de red: ${err.message}</p>`;
+        }
+    }
+
+    // Pestaña TRANSFERENCIAS: una fila por ATM (# = transferencia.nro_operacion)
+    function renderTransferencias(lista) {
+        const num = v => parseFloat(v ?? 0);
+        const filas = lista.map(t => {
+            const dev = num(t.devolucion);
+            // Débito del flujo anterior con DEV aún sin registrar en "devoluciones"
+            const devSinRegistrar = dev > 0 && t.devolucion_uuid == null && t.id_pago != null;
+            let accionHtml;
+            if (devSinRegistrar) {
+                accionHtml = `<button class="btn-accion btn-acepta-dev" data-id="${t.id_pago}"
+                        title="Aceptar y registrar la devolución">✅</button>`;
+            } else if (dev > 0 && t.devolucion_estado === 'pendiente') {
+                accionHtml = `<button class="btn-accion btn-ver-dev" data-nro="${t.nro_operacion}"
+                        title="Devolución pendiente: ver detalle y completarla">↩️</button>`;
+            } else if (dev > 0) {
+                accionHtml = `<span class="pago-cerrado" title="Transferencia y devolución cerradas">🔒</span>`;
+            } else {
+                accionHtml = `<span class="pago-cerrado" title="Débito cerrado">🔒</span>`;
+            }
+            return `<tr>
+                <td class="mono">${t.nro_operacion}</td>
+                <td>${fmtDate(t.fecha)}</td>
+                <td class="transf-lineas">
+                    <div><span class="transf-etq">Débito:</span> ${fmtMoney(t.monto_debitado)}</div>
+                    <div class="${dev > 0 ? 'val-debito' : ''}"><span class="transf-etq">Devolución:</span> ${fmtMoney(t.devolucion)}</div>
+                    <div class="val-real"><span class="transf-etq">Aporte:</span> ${fmtMoney(t.aporte)}</div>
+                </td>
+                <td class="mono">${t.nro_envio ?? '—'}</td>
+                <td style="text-align:center">${accionHtml}</td>
+            </tr>`;
+        }).join('');
+
+        const total = campo => lista.reduce((s, t) => s + num(t[campo]), 0);
+        const filaTotales = `<tr class="transf-totales">
+            <td colspan="2"></td>
+            <td class="transf-lineas">
+                <div><span class="transf-etq">Transferencia:</span> Bs ${total('monto_debitado').toFixed(2)}</div>
+                <div><span class="transf-etq">Pagos:</span> Bs ${total('aporte').toFixed(2)}</div>
+                <div><span class="transf-etq">Devoluciones:</span> Bs ${total('devolucion').toFixed(2)}</div>
+            </td>
+            <td colspan="2"></td>
+        </tr>`;
+
+        return `<div class="pago-table-wrap">
+            <table class="pago-table">
+                <thead><tr>
+                    <th>#</th>
+                    <th>FECHA</th>
+                    <th>TRANSF.</th>
+                    <th>N° ENVÍO</th>
+                    <th>ACCIONES</th>
+                </tr></thead>
+                <tbody>${filas}${filaTotales}</tbody>
+            </table>
+        </div>`;
+    }
+
+    function abrirDetalleDevolucion(nro) {
+        const t = _transferencias.find(x => String(x.nro_operacion) === String(nro));
+        if (!t) return;
+        document.getElementById('dd-titulo').textContent = `↩️ Devolución · transferencia #${t.nro_operacion}`;
+        document.getElementById('dd-tabla').replaceChildren(renderTablaDevoluciones([{
+            codigo_cliente:     t.codigo_cliente,
+            nombre_cliente:     t.nombre_cliente,
+            ci_cliente:         t.ci_cliente,
+            monto_a_devolver:   t.monto_a_devolver,
+            fecha_cobro_debito: t.fecha_cobro_debito,
+            modo_devolucion:    t.modo_devolucion,
+            estado:             t.devolucion_estado,
+            fecha_devolucion:   t.fecha_devolucion,
+        }]));
+        document.getElementById('dd-uuid').value  = t.devolucion_uuid;
+        document.getElementById('dd-modo').value  = t.modo_devolucion === 'Transferencia' ? 'Transferencia' : 'Efectivo';
+        document.getElementById('dd-fecha').value = new Date().toLocaleDateString('en-CA', { timeZone: 'America/La_Paz' });
+        abrirModalFloat('modal-devolucion-detalle');
+    }
+
+    async function completarDevolucion() {
+        const uuid  = document.getElementById('dd-uuid').value;
+        const modo  = document.getElementById('dd-modo').value;
+        const fecha = document.getElementById('dd-fecha').value;
+        if (!fecha) {
+            alert('Ingresa la fecha de devolución.');
+            return;
+        }
+        if (!confirm(`¿Confirmar que la devolución se entregó (${modo}, ${fmtDate(fecha)})?`)) return;
+        const btn = document.getElementById('dd-btn-completar');
+        btn.disabled = true;
+        try {
+            const fd = new FormData();
+            fd.append('uuid',  uuid);
+            fd.append('modo',  modo);
+            fd.append('fecha', fecha);
+            const res  = await fetch('/gyrosfe/api/devolucion_completar.php', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!data.ok) {
+                alert('Error al completar la devolución: ' + (data.error ?? 'desconocido'));
+                return;
+            }
+            cerrarModalFloat('modal-devolucion-detalle');
+            await cargarTransferencias(_regUuid);
+        } catch (e) {
+            alert('Error de red: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     function renderPagosBloque(item, num) {
         const p = item.prestamo;
         const cuotas = item.cuotas;
@@ -2953,12 +3169,13 @@ header('Content-Type: text/html; charset=utf-8');
     }
 
     // ── ATM: DEBITAR − DEVOLUCIÓN = APORTE (Transferencia a Terceros a cuentaOficina) ──
-    async function consultaSaldoLigada(uuid, idPago, tipo) {
+    // nroOperacion liga el saldo "después" a la transferencia; el "antes" lo toma debitar.php
+    async function consultaSaldoLigada(uuid, nroOperacion) {
         const fd = new FormData();
         fd.append('uuid', uuid);
-        if (idPago) {
-            fd.append('id_pago', idPago);
-            fd.append('tipo', tipo);
+        if (nroOperacion) {
+            fd.append('nro_operacion', nroOperacion);
+            fd.append('tipo', 'despues');
         }
         const ctrl = new AbortController();
         const tout = setTimeout(() => ctrl.abort(), 185000);
@@ -3006,10 +3223,10 @@ header('Content-Type: text/html; charset=utf-8');
         if (parseFloat(data.devolucion) > 0) partes.push(`<span class="val-debito">DEV ${parseFloat(data.devolucion).toFixed(2)}</span>`);
         return `<span style="color:#34d399;font-weight:700">Debitado ${parseFloat(data.monto).toFixed(2)}</span>` +
             (partes.length ? ` · ${partes.join(' · ')}` : '') +
-            `<div class="small mono" style="color:#9aa0b8">N° ${data.numero_envio}</div>`;
+            `<div class="small mono" style="color:#9aa0b8"># ${data.nro_operacion ?? '—'} · N° ${data.numero_envio}</div>`;
     }
 
-    async function ejecutarAporte(uuid, idPagoPendiente) {
+    async function ejecutarAporte(uuid) {
         const cell            = document.getElementById(`debitar-cell-${uuid}`);
         const saldoCell       = document.getElementById(`saldo-cell-${uuid}`);
         const debitarInput    = document.getElementById(`debitar-monto-${uuid}`);
@@ -3034,11 +3251,6 @@ header('Content-Type: text/html; charset=utf-8');
             devolucionInput?.focus();
             return;
         }
-        if (aporteCts > 0 && !idPagoPendiente) {
-            alert('El cliente no tiene cuotas pendientes donde registrar el APORTE.');
-            return;
-        }
-
         const monto      = debitarCts / 100;
         const devolucion = devolucionCts / 100;
         const aporte     = aporteCts / 100;
@@ -3046,13 +3258,11 @@ header('Content-Type: text/html; charset=utf-8');
             `¿Está seguro de continuar con la transferencia?\n\n` +
             `Debitar: Bs. ${monto.toFixed(2)}\n` +
             `Devolución: Bs. ${devolucion.toFixed(2)}\n` +
-            `Aporte (pago a la cuota): Bs. ${aporte.toFixed(2)}`
+            `Aporte: Bs. ${aporte.toFixed(2)}`
         )) {
             return;
         }
 
-        // El saldo antes/después se liga a la cuota solo si el aporte la paga
-        const idPagoSaldo = aporteCts > 0 ? idPagoPendiente : '';
         let secs = 0;
         let fase = 'Consultando saldo (antes)';
         const originalSaldo = saldoCell ? saldoCell.innerHTML : '';
@@ -3069,7 +3279,7 @@ header('Content-Type: text/html; charset=utf-8');
         let data = null;
         try {
             // 1) Saldo ANTES
-            const antes = await consultaSaldoLigada(uuid, idPagoSaldo, 'antes');
+            const antes = await consultaSaldoLigada(uuid, null);
             if (!antes.ok) throw new Error('Saldo (antes): ' + (antes.error ?? 'desconocido'));
 
             // 2) Transferencia por el monto total a DEBITAR
@@ -3083,17 +3293,10 @@ header('Content-Type: text/html; charset=utf-8');
             if (debitarInput)    debitarInput.value    = '0.00';
             if (devolucionInput) devolucionInput.value = '0.00';
             recalcAporte(uuid);
-            if (aporteCts > 0) {
-                // La cuota quedó pagada: el id ligado al botón ya no es la cuota pendiente
-                cell?.querySelectorAll('input, button').forEach(el => {
-                    el.disabled = true;
-                    el.title    = 'Cuota pagada: recargar la página para el siguiente débito';
-                });
-            }
 
             // 3) Saldo DESPUÉS
             fase = 'Consultando saldo (después)';
-            const despues = await consultaSaldoLigada(uuid, idPagoSaldo, 'despues');
+            const despues = await consultaSaldoLigada(uuid, data.nro_operacion);
             if (!despues.ok) throw new Error('Saldo (después): ' + (despues.error ?? 'desconocido'));
 
             if (saldoCell) {
