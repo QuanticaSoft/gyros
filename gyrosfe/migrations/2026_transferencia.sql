@@ -78,9 +78,10 @@ FROM (
       AND pg."nro_envio_debito" IS DISTINCT FROM pg."nro_envio_transferencia"
 
     UNION ALL
-    -- Flujo anterior: débito adicional (DEV = débito − cuota)
+    -- Flujo anterior: débito adicional (DEV = débito − cuota; negativo si se debitó menos que la cuota,
+    -- y entonces no hay nada que devolver)
     SELECT pr."clienteIdCliente", pg."fecha_debito_extra",
-           pg."debito", COALESCE(pg."dev", 0), pg."debito" - COALESCE(pg."dev", 0),
+           pg."debito", GREATEST(COALESCE(pg."dev", 0), 0), pg."debito" - GREATEST(COALESCE(pg."dev", 0), 0),
            pg."nro_envio_debito", pg."devolucion_uuid",
            NULL, pg."id_pago"
     FROM "pago" pg
