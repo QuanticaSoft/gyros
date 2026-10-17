@@ -403,16 +403,33 @@ def paso8_leer_saldo(d: u2.Device) -> str:
 # Paso 9 — Cerrar sesión (botón off en la barra superior)
 # ---------------------------------------------------------------------------
 
+def _boton_logout(d: u2.Device):
+    """
+    El ícono ⏻ no tiene resource-id ni content-desc (la app los ofusca), pero en la barra
+    superior es siempre el ImageView clicable pegado a la izquierda del Spinner, a 48 dp del
+    borde derecho. Una coordenada fija solo sirve para una resolución: (580, 122) cae fuera
+    de la pantalla en los teléfonos de 480 px de ancho.
+    """
+    spinner = d(className="android.widget.Spinner", packageName=APP_PACKAGE)
+    if not spinner.exists:
+        return None
+    return spinner.left(className="android.widget.ImageView", clickable=True, packageName=APP_PACKAGE)
+
+
 def paso9_cerrar_sesion(d: u2.Device) -> None:
     """
     Hace clic en el botón de logout (ícono ⏻) ubicado en la barra superior.
-    Coordenadas identificadas en la jerarquía: bounds="[536,78][624,166]" → centro (580, 122).
     Si aparece un diálogo de confirmación, acepta.
     """
     print("[PASO 9] Cerrando sesión...")
 
-    # Clic en el botón off por coordenadas (más confiable que selector sin content-desc)
-    d.click(580, 122)
+    boton = _boton_logout(d)
+    if boton is not None:
+        boton.click()
+    else:
+        # Respaldo: centro del ⏻ en el ZTE Blade A34 (720x1612), donde se calibró originalmente
+        print("[PASO 9] ADVERTENCIA: botón de logout no encontrado por selector; uso la coordenada (580, 122).")
+        d.click(580, 122)
     time.sleep(1)
 
     # Manejar diálogo de confirmación si aparece
