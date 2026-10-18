@@ -1900,7 +1900,7 @@ header('Content-Type: text/html; charset=utf-8');
             <h3 id="dd-titulo">↩️ Devolución</h3>
             <div id="dd-tabla"></div>
             <input type="hidden" id="dd-uuid">
-            <div class="form-row col3">
+            <div class="form-row col3" id="dd-form">
                 <div>
                     <label class="mf-label">Modo de devolución</label>
                     <select id="dd-modo" class="mf-input">
@@ -1919,7 +1919,7 @@ header('Content-Type: text/html; charset=utf-8');
                 </div>
             </div>
             <div class="mf-actions">
-                <button class="btn-cancel" onclick="cerrarModalFloat('modal-devolucion-detalle')">Cancelar</button>
+                <button class="btn-cancel" id="dd-btn-cancelar" onclick="cerrarModalFloat('modal-devolucion-detalle')">Cancelar</button>
                 <button class="btn-primary" id="dd-btn-completar" onclick="completarDevolucion()">Completar devolución</button>
             </div>
         </div>
@@ -2815,6 +2815,9 @@ header('Content-Type: text/html; charset=utf-8');
             content.querySelectorAll('.btn-ver-dev').forEach(btn => {
                 btn.addEventListener('click', () => abrirDetalleDevolucion(btn.dataset.nro));
             });
+            content.querySelectorAll('.btn-ver-dev-cerrada').forEach(btn => {
+                btn.addEventListener('click', () => abrirDetalleDevolucion(btn.dataset.nro, { soloLectura: true }));
+            });
             // Débito del flujo anterior: registrar su DEV crea la fila en "devoluciones"
             content.querySelectorAll('.btn-acepta-dev').forEach(btn => {
                 btn.addEventListener('click', async function() {
@@ -2858,6 +2861,10 @@ header('Content-Type: text/html; charset=utf-8');
             } else if (dev > 0 && t.devolucion_estado === 'pendiente') {
                 accionHtml = `<button class="btn-accion btn-ver-dev" data-nro="${t.nro_operacion}"
                         title="Devolución pendiente: ver detalle y completarla">↩️</button>`;
+            } else if (dev > 0 && t.devolucion_uuid != null) {
+                accionHtml = `<span class="pago-cerrado" title="Transferencia y devolución cerradas">🔒</span>
+                    <button class="btn-accion btn-ver-dev-cerrada" data-nro="${t.nro_operacion}"
+                        title="Ver detalle de la devolución">🔍</button>`;
             } else if (dev > 0) {
                 accionHtml = `<span class="pago-cerrado" title="Transferencia y devolución cerradas">🔒</span>`;
             } else {
@@ -2901,10 +2908,14 @@ header('Content-Type: text/html; charset=utf-8');
         </div>`;
     }
 
-    function abrirDetalleDevolucion(nro) {
+    function abrirDetalleDevolucion(nro, { soloLectura = false } = {}) {
         const t = _transferencias.find(x => String(x.nro_operacion) === String(nro));
         if (!t) return;
-        document.getElementById('dd-titulo').textContent = `↩️ Devolución · transferencia #${t.nro_operacion}`;
+        document.getElementById('dd-titulo').textContent = `${soloLectura ? '🔍' : '↩️'} Devolución · transferencia #${t.nro_operacion}`;
+        // El modal es compartido: lo que oculta la vista de solo lectura hay que restaurarlo al completar
+        document.getElementById('dd-form').style.display          = soloLectura ? 'none' : '';
+        document.getElementById('dd-btn-completar').style.display = soloLectura ? 'none' : '';
+        document.getElementById('dd-btn-cancelar').textContent    = soloLectura ? 'Cerrar' : 'Cancelar';
         document.getElementById('dd-tabla').replaceChildren(renderTablaDevoluciones([{
             codigo_cliente:     t.codigo_cliente,
             nombre_cliente:     t.nombre_cliente,
