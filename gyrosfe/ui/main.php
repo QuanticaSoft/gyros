@@ -1900,13 +1900,24 @@ header('Content-Type: text/html; charset=utf-8');
             <h3 id="dd-titulo">↩️ Devolución</h3>
             <div id="dd-tabla"></div>
             <input type="hidden" id="dd-uuid">
-            <label class="mf-label">Modo de devolución</label>
-            <select id="dd-modo" class="mf-input">
-                <option value="Efectivo">Efectivo</option>
-                <option value="Transferencia">Transferencia</option>
-            </select>
-            <label class="mf-label">Fecha de devolución</label>
-            <input type="date" id="dd-fecha" class="mf-input">
+            <div class="form-row col3">
+                <div>
+                    <label class="mf-label">Modo de devolución</label>
+                    <select id="dd-modo" class="mf-input">
+                        <option value="Efectivo">Efectivo</option>
+                        <option value="Transferencia">Transferencia</option>
+                        <option value="QR">QR</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mf-label">Referencia</label>
+                    <input type="text" id="dd-referencia" class="mf-input" maxlength="100" placeholder="N° de comprobante o recibo">
+                </div>
+                <div>
+                    <label class="mf-label">Fecha de devolución</label>
+                    <input type="date" id="dd-fecha" class="mf-input">
+                </div>
+            </div>
             <div class="mf-actions">
                 <button class="btn-cancel" onclick="cerrarModalFloat('modal-devolucion-detalle')">Cancelar</button>
                 <button class="btn-primary" id="dd-btn-completar" onclick="completarDevolucion()">Completar devolución</button>
@@ -2112,6 +2123,7 @@ header('Content-Type: text/html; charset=utf-8');
             ['MONTO',            d => fmtMoney(d.monto_a_devolver)],
             ['FECHA COBRO',      d => d.fecha_cobro_debito ? fmtDate(d.fecha_cobro_debito) : '—'],
             ['MODO',             d => d.modo_devolucion ?? '—'],
+            ['REFERENCIA',       d => d.referencia || '—'],
             ['ESTADO',           d => d.estado          ?? '—'],
             ['FECHA DEVOLUCIÓN', d => d.fecha_devolucion ? fmtDate(d.fecha_devolucion) : '—'],
         ];
@@ -2900,11 +2912,13 @@ header('Content-Type: text/html; charset=utf-8');
             monto_a_devolver:   t.monto_a_devolver,
             fecha_cobro_debito: t.fecha_cobro_debito,
             modo_devolucion:    t.modo_devolucion,
+            referencia:         t.referencia,
             estado:             t.devolucion_estado,
             fecha_devolucion:   t.fecha_devolucion,
         }]));
         document.getElementById('dd-uuid').value  = t.devolucion_uuid;
-        document.getElementById('dd-modo').value  = t.modo_devolucion === 'Transferencia' ? 'Transferencia' : 'Efectivo';
+        document.getElementById('dd-modo').value  = ['Transferencia', 'QR'].includes(t.modo_devolucion) ? t.modo_devolucion : 'Efectivo';
+        document.getElementById('dd-referencia').value = t.referencia ?? '';
         document.getElementById('dd-fecha').value = new Date().toLocaleDateString('en-CA', { timeZone: 'America/La_Paz' });
         abrirModalFloat('modal-devolucion-detalle');
     }
@@ -2913,11 +2927,16 @@ header('Content-Type: text/html; charset=utf-8');
         const uuid  = document.getElementById('dd-uuid').value;
         const modo  = document.getElementById('dd-modo').value;
         const fecha = document.getElementById('dd-fecha').value;
+        const referencia = document.getElementById('dd-referencia').value.trim();
+        if (!referencia) {
+            alert('Ingresa la referencia de la devolución.');
+            return;
+        }
         if (!fecha) {
             alert('Ingresa la fecha de devolución.');
             return;
         }
-        if (!confirm(`¿Confirmar que la devolución se entregó (${modo}, ${fmtDate(fecha)})?`)) return;
+        if (!confirm(`¿Confirmar que la devolución se entregó (${modo}, ref. ${referencia}, ${fmtDate(fecha)})?`)) return;
         const btn = document.getElementById('dd-btn-completar');
         btn.disabled = true;
         try {
@@ -2925,6 +2944,7 @@ header('Content-Type: text/html; charset=utf-8');
             fd.append('uuid',  uuid);
             fd.append('modo',  modo);
             fd.append('fecha', fecha);
+            fd.append('referencia', referencia);
             const res  = await fetch('/gyrosfe/api/devolucion_completar.php', { method: 'POST', body: fd });
             const data = await res.json();
             if (!data.ok) {

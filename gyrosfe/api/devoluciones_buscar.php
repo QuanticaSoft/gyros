@@ -17,7 +17,7 @@ try {
     $pdo  = db_connect();
     $stmt = $pdo->prepare(
         'SELECT uuid, codigo_cliente, nombre_cliente, ci_cliente,
-                monto_a_devolver, fecha_cobro_debito, modo_devolucion, estado, fecha_devolucion
+                monto_a_devolver, fecha_cobro_debito, modo_devolucion, estado, fecha_devolucion, referencia
          FROM devoluciones
          WHERE trim(ci_cliente) = :ci
             OR lower(trim(codigo_cliente)) = lower(:codigo)
