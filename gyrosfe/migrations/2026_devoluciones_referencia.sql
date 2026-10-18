@@ -6,7 +6,7 @@
 -- Debe aplicarse ANTES de desplegar el código que lo usa: api/devolucion_completar.php actualiza esta columna.
 -- Ejecutar manualmente via psql (ver 2026_agent_tunnel_port.sql).
 --
--- Aplicado: pendiente.
+-- Aplicado: 2026-10-18.
 
 -- UP
 ALTER TABLE devoluciones ADD COLUMN IF NOT EXISTS referencia TEXT;
