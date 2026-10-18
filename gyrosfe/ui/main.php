@@ -352,7 +352,7 @@ header('Content-Type: text/html; charset=utf-8');
             color: #e0e4f0;
             outline: none;
         }
-        #modal-devoluciones .modal-box { max-width: 760px; }
+        #modal-devoluciones .modal-box { max-width: 1100px; }
 
         /* ── Badge online en toolbar ───────────────────────────── */
         .tabla-cabecera {
@@ -1895,7 +1895,7 @@ header('Content-Type: text/html; charset=utf-8');
 
     <!-- Detalle de la devolución de una transferencia (pestaña TRANSFERENCIAS) -->
     <div id="modal-devolucion-detalle" class="modal-float" role="dialog" aria-modal="true">
-        <div class="modal-float-box" style="max-width:820px;width:95%">
+        <div class="modal-float-box" style="max-width:1100px;width:95%">
             <button class="mf-close" onclick="cerrarModalFloat('modal-devolucion-detalle')">✕</button>
             <h3 id="dd-titulo">↩️ Devolución</h3>
             <div id="dd-tabla"></div>
