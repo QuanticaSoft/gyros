@@ -21,7 +21,7 @@ try {
                t.devolucion_uuid, t.id_pago,
                d.estado           AS devolucion_estado,
                d.codigo_cliente, d.nombre_cliente, d.ci_cliente,
-               d.monto_a_devolver, d.fecha_cobro_debito, d.modo_devolucion, d.fecha_devolucion
+               d.monto_a_devolver, d.fecha_cobro_debito, d.modo_devolucion, d.fecha_devolucion, d.referencia
         FROM transferencia t
         LEFT JOIN devoluciones d ON d.uuid = t.devolucion_uuid
         WHERE t.cliente_id = :uuid

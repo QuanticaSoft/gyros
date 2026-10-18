@@ -7,7 +7,7 @@ require_once __DIR__ . '/../lib/db_connect.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-const MODOS_DEVOLUCION = ['Efectivo', 'Transferencia'];
+const MODOS_DEVOLUCION = ['Efectivo', 'Transferencia', 'QR'];
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['ok' => false, 'error' => 'Método no permitido']);
@@ -17,12 +17,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $uuid  = trim((string) ($_POST['uuid']  ?? ''));
 $modo  = trim((string) ($_POST['modo']  ?? ''));
 $fecha = trim((string) ($_POST['fecha'] ?? ''));
+$referencia = trim((string) ($_POST['referencia'] ?? ''));
 
 $error = null;
 if ($uuid === '') {
     $error = 'uuid requerido';
 } elseif (!in_array($modo, MODOS_DEVOLUCION, true)) {
     $error = 'Modo de devolución inválido';
+} elseif ($referencia === '') {
+    $error = 'Referencia requerida';
+} elseif (mb_strlen($referencia) > 100) {
+    $error = 'La referencia no puede superar 100 caracteres';
 } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha) || !checkdate((int) substr($fecha, 5, 2), (int) substr($fecha, 8, 2), (int) substr($fecha, 0, 4))) {
     $error = 'Fecha de devolución inválida';
 }
@@ -53,10 +58,10 @@ try {
 
     $stmtUpd = $pdo->prepare('
         UPDATE devoluciones
-        SET estado = \'completado\', modo_devolucion = :modo, fecha_devolucion = :fecha
+        SET estado = \'completado\', modo_devolucion = :modo, fecha_devolucion = :fecha, referencia = :referencia
         WHERE uuid = :uuid
     ');
-    $stmtUpd->execute([':modo' => $modo, ':fecha' => $fecha, ':uuid' => $uuid]);
+    $stmtUpd->execute([':modo' => $modo, ':fecha' => $fecha, ':referencia' => $referencia, ':uuid' => $uuid]);
 
     $pdo->commit();
     echo json_encode(['ok' => true]);
