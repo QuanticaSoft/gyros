@@ -44,6 +44,8 @@ scripts/deploy.sh gyrosfe --apply    # despliega y crea el tag local deploy/gyro
 cat /webs/quanticasoft/gyrosfe/.deployed   # (en el host) qué commit está corriendo
 ```
 
+La versión en producción se marca con un tag SemVer anotado `vX.Y.Z` sobre el commit de `main` desplegado (MINOR por feature, PATCH por fix; `v1.0.0` es la primera); `git describe --tags --match 'v*'` dice cuál corre. Los tags `deploy/<host>/<fecha-hora>` siguen marcando cada despliegue por host.
+
 Para producción el script solo corre desde `main`, limpio e igual a `origin/main`, y para `cbb01`/`scz01` exige que ambas carpetas sean idénticas a `dev/`; para `dev` solo exige el árbol limpio y no crea tag. Un host agente nuevo se prepara una vez con `scripts/setup-agent-host.sh` (ruta, symlink, reglas udev y units; se corre con sudo en el host). No toca `.env`, `.venv/` ni las units ya instaladas en `/etc/systemd/system`, y no reinicia servicios. Correr siempre la simulación antes de `--apply`.
 
 `gyrosfe/` se copia tal cual a la raíz web: no poner ahí nada que no deba ser público. `gyrosfe/.htaccess` bloquea archivos ocultos, `.md` y `.sql`, pero no directorios ocultos.

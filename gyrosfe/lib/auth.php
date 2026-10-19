@@ -35,3 +35,13 @@ function auth_logout(): void
     }
     session_destroy();
 }
+
+// Los totales globales de la plataforma son información del dueño, no de los operadores
+const ESTADISTICAS_EMAILS = ['marco@gmail.com'];
+
+function auth_puede_ver_estadisticas(): bool
+{
+    auth_start_session();
+    $email = strtolower(trim((string) ($_SESSION['email'] ?? '')));
+    return in_array($email, ESTADISTICAS_EMAILS, true);
+}
