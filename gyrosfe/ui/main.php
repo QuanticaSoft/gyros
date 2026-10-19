@@ -9,6 +9,8 @@ function esc(string $s): string
     return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+$puedeVerEstadisticas = auth_puede_ver_estadisticas();
+
 $userName = trim((string) ($_SESSION['full_name'] ?? ''));
 if ($userName === '') {
     $userName = (string) ($_SESSION['email'] ?? 'Usuario');
@@ -354,6 +356,34 @@ header('Content-Type: text/html; charset=utf-8');
         }
         #modal-devoluciones .modal-box { max-width: 1100px; }
 
+        /* ── Estadísticas generales ────────────────────────────── */
+        .estad-btn {
+            width: auto;
+            margin-left: 18px;
+            padding: 7px 12px;
+            border: 1px solid #2a2f45;
+            border-radius: 10px;
+            background: #1a1f35;
+            color: #e0e4f0;
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+        .estad-btn:hover { background: #262c48; }
+        #modal-estadisticas .modal-box { max-width: 1100px; }
+        .estad-filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 18px; }
+        .estad-filtros label { display: block; font-size: .75rem; color: #9aa0b8; margin-bottom: 4px; }
+        .estad-filtros input, .estad-filtros select { width: auto; }
+        .estad-filtros button { width: auto; }
+        .estad-atajos { display: flex; gap: 6px; }
+        .estad-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .estad-tarjeta { border: 1px solid #2a2f45; border-radius: 10px; background: #131624; padding: 12px 14px; }
+        .estad-tarjeta .t { font-size: .72rem; letter-spacing: .07em; text-transform: uppercase; color: #9aa0b8; }
+        .estad-tarjeta .v { font-size: 1.35rem; font-weight: 700; color: #e0e4f0; margin-top: 4px; }
+        .estad-tarjeta .s { font-size: .78rem; color: #9aa0b8; margin-top: 2px; }
+
         /* ── Badge online en toolbar ───────────────────────────── */
         .tabla-cabecera {
             display: flex;
@@ -563,6 +593,8 @@ header('Content-Type: text/html; charset=utf-8');
             transition: color .15s, border-color .15s;
         }
         .tab-nav li:hover { color: #c8d0ea; }
+        .tab-nav li.disabled,
+        .tab-nav li.disabled:hover { opacity: .35; color: #9aa0b8; cursor: not-allowed; }
         .tab-nav li.active {
             color: #7b93ff;
             border-bottom-color: #7b93ff;
@@ -1007,6 +1039,9 @@ header('Content-Type: text/html; charset=utf-8');
         <a href="" title="Refrescar">Refrescar</a>
         <span class="badge-online"><?= count($usbRows) ?> online</span>
         <div class="devol-buscador">
+<?php if ($puedeVerEstadisticas): ?>
+            <button type="button" class="estad-btn" title="Totales generales de la plataforma" onclick="abrirEstadisticas()">📊 Estadísticas</button>
+<?php endif; ?>
             <span class="devol-titulo">Devoluciones</span>
             <div class="devol-caja">
                 <button type="button" id="devol-btn" title="Buscar devoluciones por CI o código" onclick="buscarDevoluciones()">🔍</button>
@@ -1339,6 +1374,34 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
     </div>
 
+<?php if ($puedeVerEstadisticas): ?>
+    <div id="modal-estadisticas" class="modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal-box">
+            <button class="modal-close" onclick="cerrarModal('modal-estadisticas')" title="Cerrar">✕</button>
+            <h2>📊 Estadísticas generales</h2>
+            <div class="estad-filtros">
+                <div><label for="estad-desde">Desde</label><input type="date" id="estad-desde"></div>
+                <div><label for="estad-hasta">Hasta</label><input type="date" id="estad-hasta"></div>
+                <div>
+                    <label for="estad-agrupar">Agrupar por</label>
+                    <select id="estad-agrupar">
+                        <option value="dia">Día</option>
+                        <option value="mes">Mes</option>
+                        <option value="anio">Año</option>
+                    </select>
+                </div>
+                <div class="estad-atajos">
+                    <button type="button" class="btn-cancel" onclick="estadAtajo('hoy')">Hoy</button>
+                    <button type="button" class="btn-cancel" onclick="estadAtajo('mes')">Este mes</button>
+                    <button type="button" class="btn-cancel" onclick="estadAtajo('anio')">Este año</button>
+                </div>
+                <button type="button" class="btn-primary" id="estad-btn-consultar" onclick="cargarEstadisticas()">Consultar</button>
+            </div>
+            <div id="estad-contenido"></div>
+        </div>
+    </div>
+<?php endif; ?>
+
     <div id="modal-registrar" class="modal-overlay" role="dialog" aria-modal="true">
         <div class="modal-box">
             <button class="modal-close" onclick="cerrarModal('modal-registrar')" title="Cerrar">✕</button>
@@ -1544,7 +1607,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <ul class="tab-nav" id="reg-tabs">
                     <li class="active" data-tab="tab-general">GENERAL</li>
                     <li data-tab="tab-prestamos">PRESTAMOS</li>
-                    <li data-tab="tab-pagos">PAGOS</li>
+                    <li data-tab="tab-pagos" class="disabled" title="Deshabilitado">PAGOS</li>
                     <li data-tab="tab-transferencias">TRANSFERENCIAS</li>
                     <li data-tab="tab-banco">BANCO</li>
                 </ul>
@@ -2184,6 +2247,120 @@ header('Content-Type: text/html; charset=utf-8');
         }
     }
 
+    // ── Estadísticas generales ──────────────────────────────────
+    function fechaISO(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function estadAtajo(rango) {
+        const hoy = new Date();
+        const desde = rango === 'hoy' ? hoy
+                    : rango === 'mes' ? new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+                    : new Date(hoy.getFullYear(), 0, 1);
+        document.getElementById('estad-desde').value   = fechaISO(desde);
+        document.getElementById('estad-hasta').value   = fechaISO(hoy);
+        document.getElementById('estad-agrupar').value = rango === 'anio' ? 'mes' : 'dia';
+        cargarEstadisticas();
+    }
+
+    function abrirEstadisticas() {
+        abrirModal('modal-estadisticas');
+        if (!document.getElementById('estad-desde').value) estadAtajo('mes');
+    }
+
+    function fmtPeriodo(periodo, agrupar) {
+        const [y, m, d] = periodo.split('-');
+        return agrupar === 'anio' ? y : agrupar === 'mes' ? `${m}/${y}` : `${d}/${m}/${y}`;
+    }
+
+    async function cargarEstadisticas() {
+        const desde     = document.getElementById('estad-desde').value;
+        const hasta     = document.getElementById('estad-hasta').value;
+        const agrupar   = document.getElementById('estad-agrupar').value;
+        const btn       = document.getElementById('estad-btn-consultar');
+        const contenido = document.getElementById('estad-contenido');
+        if (!desde || !hasta) { alert('Indica el rango de fechas.'); return; }
+
+        btn.disabled = true;
+        try {
+            const qs   = new URLSearchParams({ desde, hasta, agrupar });
+            const res  = await fetch('/gyrosfe/api/estadisticas.php?' + qs);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error ?? 'desconocido');
+            contenido.replaceChildren(renderTarjetasEstadisticas(data.totales), renderTablaEstadisticas(data));
+        } catch (err) {
+            alert('Error al cargar estadísticas: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function renderTarjetasEstadisticas(t) {
+        const tarjetas = [
+            ['Débitos',             t.debitos_cant,       `${fmtMoney(t.debitos_monto)} transferido`],
+            ['Pagos (aporte)',      fmtMoney(t.aporte),   'Débito − devolución'],
+            ['Devoluciones',        t.devol_cant,         `${fmtMoney(t.devol_monto)} · pendientes ${t.devol_pend_cant} (${fmtMoney(t.devol_pend_monto)})`],
+            ['Consultas de saldo',  t.consultas,          ''],
+        ];
+        const wrap = document.createElement('div');
+        wrap.className = 'estad-tarjetas';
+        tarjetas.forEach(([titulo, valor, sub]) => {
+            const card = document.createElement('div');
+            card.className = 'estad-tarjeta';
+            [['t', titulo], ['v', valor], ['s', sub]].forEach(([cls, texto]) => {
+                const el = document.createElement('div');
+                el.className = cls;
+                el.textContent = texto;
+                card.appendChild(el);
+            });
+            wrap.appendChild(card);
+        });
+        return wrap;
+    }
+
+    function renderTablaEstadisticas(data) {
+        const columnas = [
+            ['PERÍODO',         s => fmtPeriodo(s.periodo, data.rango.agrupar)],
+            ['N° DÉBITOS',      s => s.debitos_cant],
+            ['MONTO DEBITADO',  s => fmtMoney(s.debitos_monto)],
+            ['PAGOS (APORTE)',  s => fmtMoney(s.aporte)],
+            ['N° DEVOLUCIONES', s => s.devol_cant],
+            ['MONTO DEVOLUCIÓN', s => fmtMoney(s.devol_monto)],
+            ['PENDIENTES',      s => s.devol_pend_cant],
+            ['CONSULTAS SALDO', s => s.consultas],
+        ];
+        const wrap  = document.createElement('div');
+        wrap.className = 'pago-table-wrap';
+        if (data.series.length === 0) {
+            const p = document.createElement('p');
+            p.style.color = '#9aa0b8';
+            p.textContent = 'No hay movimientos en el rango seleccionado.';
+            wrap.appendChild(p);
+            return wrap;
+        }
+        const tabla = document.createElement('table');
+        tabla.className = 'pago-table';
+        const trHead = tabla.createTHead().insertRow();
+        columnas.forEach(([nombre]) => {
+            const th = document.createElement('th');
+            th.textContent = nombre;
+            trHead.appendChild(th);
+        });
+        const tbody = tabla.createTBody();
+        data.series.forEach(s => {
+            const tr = tbody.insertRow();
+            columnas.forEach(([, valor]) => { tr.insertCell().textContent = valor(s); });
+        });
+        const trTotal = tabla.createTFoot().insertRow();
+        columnas.forEach(([, valor], i) => {
+            const td = trTotal.insertCell();
+            td.style.fontWeight = '700';
+            td.textContent = i === 0 ? 'TOTAL' : valor(data.totales);
+        });
+        wrap.appendChild(tabla);
+        return wrap;
+    }
+
     // ── Modal ➕ Registrar ───────────────────────────────────────
     function abrirModalRegistrar(serial, dispositivo, agentId) {
         document.getElementById('reg-serial').value  = serial;
@@ -2342,6 +2519,7 @@ header('Content-Type: text/html; charset=utf-8');
 
     // ── Tab switching ────────────────────────────────────────────
     function activarTab(tabId) {
+        if (document.querySelector(`#reg-tabs [data-tab="${tabId}"]`)?.classList.contains('disabled')) return;
         document.querySelectorAll('#modal-registro .tab-panel').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('#reg-tabs li').forEach(li => li.classList.remove('active'));
         const panel = document.getElementById(tabId);
@@ -2358,7 +2536,7 @@ header('Content-Type: text/html; charset=utf-8');
 
     document.getElementById('reg-tabs').addEventListener('click', function(e) {
         const li = e.target.closest('li[data-tab]');
-        if (!li) return;
+        if (!li || li.classList.contains('disabled')) return;
         activarTab(li.dataset.tab);
     });
 
