@@ -371,21 +371,24 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
         if not texto.strip():
             campo_glosa = campos[i]  # no hacemos break: queremos el último vacío
 
+    enfocada = False
     if campo_glosa is not None:
-        campo_glosa.click()
-        time.sleep(0.8)
-        d.shell(f"input text {glosa}")
-        time.sleep(0.3)
-        cerrar_teclado(d)
-        time.sleep(0.3)
-        print(f"[PASO 16] Glosa ingresada: {glosa}")
-    else:
-        # Fallback: si TAB ya movió el foco a Glosa, escribir directamente
-        d.shell(f"input text {glosa}")
-        time.sleep(0.3)
-        cerrar_teclado(d)
-        time.sleep(0.3)
-        print(f"[PASO 16] Glosa ingresada (foco TAB): {glosa}")
+        try:
+            campo_glosa.click(timeout=5)
+            enfocada = True
+            time.sleep(0.8)
+        except u2.exceptions.UiObjectNotFoundError:
+            # En pantallas chicas (Alcatel 4034T) el teclado que abre el TAB hace
+            # que el WebView deje de exponer sus nodos; el foco ya quedo en Glosa.
+            pass
+
+    # Si no se pudo tocar el campo, se escribe sobre el foco que dejo el TAB.
+    # Si cayera en otro campo, el paso 23 no encuentra el monto y aborta sin confirmar.
+    d.shell(f"input text {glosa}")
+    time.sleep(0.3)
+    cerrar_teclado(d)
+    time.sleep(0.3)
+    print(f"[PASO 16] Glosa ingresada{'' if enfocada else ' (foco TAB)'}: {glosa}")
 
     print("[PASO 16] Formulario completo.")
 
