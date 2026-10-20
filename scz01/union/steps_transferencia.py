@@ -327,9 +327,14 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
     if campo_monto is None:
         raise RuntimeError("[PASO 16] No se encontro EditText vacio para Monto.")
 
+    # Se escribe con "input text" sobre el campo enfocado, como la glosa: en
+    # pantallas chicas, al abrirse el teclado el WebView deja de exponer sus
+    # nodos y set_text() no vuelve a encontrar el EditText (ZTE Blade A31 Lite).
+    # El campo se eligio vacio, asi que no hace falta borrarlo.
     campo_monto.click()
-    campo_monto.clear_text()
-    campo_monto.set_text(str(monto))
+    time.sleep(0.8)
+    d.shell(f"input text {monto}")
+    time.sleep(0.3)
     cerrar_teclado(d)
     time.sleep(0.5)
     print(f"[PASO 16] Monto '{monto}' ingresado.")

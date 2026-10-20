@@ -209,7 +209,7 @@ def paso22_asegurar_destinatario(d: u2.Device, cuenta: str, titular: str = "") -
 # Paso 23 - Continuar -> pantalla de confirmacion -> Confirmar
 # ---------------------------------------------------------------------------
 
-def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str) -> None:
+def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, monto_esperado: str) -> None:
     print("[PASO 23] Tocando CONTINUAR...")
     cerrar_teclado(d)
     time.sleep(0.3)
@@ -233,10 +233,19 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str) -> None:
 
     # Segunda verificacion antes de mover dinero: la cuentaOficina completa debe
     # figurar en la pantalla de confirmacion.
-    if not any(cuenta_esperada in texto for texto in _textos(d.dump_hierarchy())):
+    textos = _textos(d.dump_hierarchy())
+    if not any(cuenta_esperada in texto for texto in textos):
         d.press("back")
         raise DestinatarioNoCoincide(
             "[PASO 23] La pantalla de confirmacion no muestra la cuentaOficina esperada. Abortando sin confirmar."
+        )
+
+    # El monto se escribe sin poder releer el campo (paso 16), asi que se
+    # verifica aca, que es lo que el banco va a debitar.
+    if monto_esperado not in textos:
+        d.press("back")
+        raise RuntimeError(
+            f"[PASO 23] La pantalla de confirmacion no muestra el monto {monto_esperado}. Abortando sin confirmar."
         )
 
     print("[PASO 23] Datos verificados. Tocando CONFIRMAR...")
