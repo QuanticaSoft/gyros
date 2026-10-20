@@ -19,6 +19,7 @@ Concurrencia: un lock por serial ADB - dispositivos distintos corren en paralelo
 el mismo dispositivo no puede atender dos solicitudes simultaneas (saldo o debito).
 """
 
+import re
 import threading
 import traceback
 from datetime import datetime
@@ -143,6 +144,10 @@ def debitar():
     except ValueError:
         return jsonify({"ok": False, "error": "fecha_pago debe tener formato YYYY-MM-DD"}), 400
 
+    # El monto se escribe en el telefono con "adb shell input text"
+    if not re.fullmatch(r"\d+\.\d{2}", monto):
+        return jsonify({"ok": False, "error": "monto debe tener formato 0.00"}), 400
+
     oficina = load_oficina_config()
     glosa = generar_glosa(fecha_pago)
 
@@ -174,7 +179,7 @@ def debitar():
         paso15_seleccionar_cuenta_origen(d)
         paso16_ingresar_monto_moneda_glosa(d, monto, glosa, oficina.moneda)
         if oficina.es_banco_union:
-            paso23_continuar_y_confirmar(d, oficina.cuenta)
+            paso23_continuar_y_confirmar(d, oficina.cuenta, monto)
         else:
             paso17_continuar_y_confirmar(d, oficina.cuenta, oficina.banco)
         try:
