@@ -233,16 +233,16 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, monto_esper
 
     # Segunda verificacion antes de mover dinero: la cuentaOficina completa debe
     # figurar en la pantalla de confirmacion.
-    textos = _textos(d.dump_hierarchy())
-    if not any(cuenta_esperada in texto for texto in textos):
+    if not any(cuenta_esperada in texto for texto in _textos(d.dump_hierarchy())):
         d.press("back")
         raise DestinatarioNoCoincide(
             "[PASO 23] La pantalla de confirmacion no muestra la cuentaOficina esperada. Abortando sin confirmar."
         )
 
     # El monto se escribe sin poder releer el campo (paso 16), asi que se
-    # verifica aca, que es lo que el banco va a debitar.
-    if monto_esperado not in textos:
+    # verifica aca, que es lo que el banco va a debitar. En pantallas de 480x800
+    # queda bajo el borde, por eso se baja hasta verlo; la cuenta, arriba, ya se verifico.
+    if _scroll_hasta_encontrar(d, d(text=monto_esperado), max_intentos=4) is None:
         d.press("back")
         raise RuntimeError(
             f"[PASO 23] La pantalla de confirmacion no muestra el monto {monto_esperado}. Abortando sin confirmar."
