@@ -31,6 +31,20 @@ def cerrar_teclado(d: u2.Device) -> None:
         d.press("back")
 
 
+# Las coordenadas de los swipes se calibraron en el ZTE Blade A34. En pantallas
+# más chicas (Alcatel 4034T 480x800, ZTE Blade A31 Lite 480x960) quedaban
+# fuera de la pantalla y el scroll no hacía nada, así que se escalan.
+_ANCHO_REFERENCIA = 720
+_ALTO_REFERENCIA = 1612
+
+
+def swipe_vertical(d: u2.Device, y_inicio: int, y_fin: int, steps: int = 8) -> None:
+    """Swipe vertical con coordenadas del A34 (720x1612), escaladas a la pantalla real."""
+    ancho, alto = d.window_size()
+    x = int(540 * ancho / _ANCHO_REFERENCIA)
+    d.swipe(x, int(y_inicio * alto / _ALTO_REFERENCIA), x, int(y_fin * alto / _ALTO_REFERENCIA), steps=steps)
+
+
 def textos_en_pantalla(d: u2.Device) -> str:
     """Textos visibles (sin campos editables) para que el error diga qué mostró la app."""
     jerarquia = d.dump_hierarchy()

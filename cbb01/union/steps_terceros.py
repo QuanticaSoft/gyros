@@ -32,6 +32,7 @@ MENU_TRANSFERENCIA_TERCEROS = "Transferencia a Terceros"
 MENU_ADMINISTRACION_CUENTAS = "Administración de Cuentas"
 
 TEXTO_CLAVE_TRANSACCIONAL = "Clave Transaccional"
+TEXTO_CONFIRMACION = "Confirmación de Transferencia"
 
 # La app muestra al titular con los apellidos primero y recorta el nombre (26
 # caracteres vistos), asi que se compara palabra por palabra, sin orden y por
@@ -218,11 +219,14 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str) -> None:
     btn_continuar.click()
     time.sleep(2)
 
-    # La pantalla de confirmacion es la unica que pide la Clave Transaccional.
+    # La pantalla de confirmacion es la unica que pide la Clave Transaccional,
+    # pero en pantallas chicas ese campo queda bajo el borde y uiautomator2 no
+    # ve lo que esta fuera de pantalla; el titulo, arriba, siempre esta visible.
     clave = d(textContains=TEXTO_CLAVE_TRANSACCIONAL)
-    if not clave.exists and aceptar_dialogo_permiso(d):
-        clave.wait(timeout=8)
-    if not clave.wait(timeout=10):
+    titulo = d(textContains=TEXTO_CONFIRMACION)
+    if not (clave.exists or titulo.exists) and aceptar_dialogo_permiso(d):
+        titulo.wait(timeout=8)
+    if not (titulo.wait(timeout=10) or clave.exists):
         raise RuntimeError("[PASO 23] No se llego a la pantalla de confirmacion de la transferencia.")
 
     _esperar_pantalla_estable(d)

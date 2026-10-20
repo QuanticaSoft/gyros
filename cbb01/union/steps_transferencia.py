@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
-from union.steps import aceptar_dialogo_permiso, cerrar_teclado
+from union.steps import aceptar_dialogo_permiso, cerrar_teclado, swipe_vertical
 
 MENU_TRANSFERENCIAS_INTERBANCARIAS = "Transferencias Interbancarias"
 MENU_TRANSFERENCIA_ACH = "Transferencia ACH"
@@ -228,7 +228,7 @@ def paso15_seleccionar_cuenta_origen(d: u2.Device) -> None:
     for _ in range(5):
         if btn is not None:
             break
-        d.swipe(540, 1200, 540, 900, steps=10)
+        swipe_vertical(d, 1200, 900, steps=10)
         time.sleep(0.8)
         btn = _btn_visible()
 
@@ -236,7 +236,7 @@ def paso15_seleccionar_cuenta_origen(d: u2.Device) -> None:
         raise RuntimeError("[PASO 15] No se encontro el boton 'Selecciona la Cuenta de Debito'.")
 
     # Scroll adicional para centrar el boton en pantalla antes de clickear
-    d.swipe(540, 1100, 540, 950, steps=8)
+    swipe_vertical(d, 1100, 950, steps=8)
     time.sleep(0.5)
     btn.click()
     time.sleep(2)  # dar tiempo al dialog para abrirse
@@ -273,7 +273,7 @@ def _scroll_hasta_encontrar(d: u2.Device, selector, max_intentos: int = 5, y_ini
     if selector.exists:
         return selector
     for _ in range(max_intentos):
-        d.swipe(540, y_inicio, 540, y_fin, steps=steps)
+        swipe_vertical(d, y_inicio, y_fin, steps=steps)
         time.sleep(pausa)
         if selector.exists:
             return selector
