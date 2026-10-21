@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Promueve lo probado en dev/ a los agentes de produccion: deja cbb01/ y
-# scz01/ identicos a dev/. No commitea ni despliega.
+# Promueve lo probado en cbb01/ (la fuente del agente) a scz01/: lo deja
+# identico a cbb01/. No commitea ni despliega.
 set -euo pipefail
 
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
-for target in cbb01 scz01; do
-    rsync -a --delete --exclude .DS_Store dev/ "$target/"
-done
+rsync -a --delete --exclude .DS_Store cbb01/ scz01/
 
 git status --short

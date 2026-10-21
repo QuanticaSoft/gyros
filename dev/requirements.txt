@@ -1,2 +1,0 @@
-uiautomator2>=2.16
-python-dotenv>=1.0
