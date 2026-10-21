@@ -4,3 +4,5 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="1bbb", MODE="0664", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTR{idVendor}=="19d2", MODE="0664", GROUP="plugdev"
 # Samsung (04e8)
 SUBSYSTEM=="usb", ATTR{idVendor}=="04e8", MODE="0664", GROUP="plugdev"
+# Unisoc / Google (18d1): Unisoc no tiene vendor USB propio para ADB
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0664", GROUP="plugdev"
