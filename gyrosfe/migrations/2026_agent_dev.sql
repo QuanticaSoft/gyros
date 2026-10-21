@@ -6,6 +6,7 @@
 -- (ver 2026_agent_tunnel_port.sql para el porqué).
 --
 -- Aplicado: pendiente.
+-- Reemplazada por 2026_agent_dev_baja.sql (el host dev se dio de baja).
 
 -- UP
 INSERT INTO "Agent" ("agentId","token","hostname","tunnelPort","updatedAt")
