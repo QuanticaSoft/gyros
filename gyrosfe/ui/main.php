@@ -471,22 +471,25 @@ header('Content-Type: text/html; charset=utf-8');
         .btn-accion:hover { background: rgba(255,255,255,.1); }
         .btn-accion:disabled { opacity: .35; cursor: not-allowed; }
 
-        /* ── Columna Aporte: DEBITAR / DEVOLUCION / APORTE ─────── */
-        .aporte-fila {
+        /* ── Columna Aporte: DEBITAR / APORTE / DEVOLUCION ─────── */
+        .aporte-grid {
             display: grid;
             grid-template-columns: 112px 98px 34px;
+            grid-auto-rows: minmax(30px, auto);
             align-items: center;
-            gap: 8px;
-            min-height: 30px;
+            column-gap: 8px;
             font-size: .78rem;
             color: #9aa0b8;
             white-space: nowrap;
         }
-        .aporte-fila .aporte-etiqueta { text-align: right; letter-spacing: .03em; }
-        .aporte-fila .aporte-estado   { grid-column: 2 / 4; text-align: left; }
-        .aporte-fila .aporte-calc     { grid-column: 2 / 3; text-align: right; padding-right: 7px;
+        .aporte-grid .aporte-etiqueta { grid-column: 1; text-align: right; letter-spacing: .03em; }
+        .aporte-grid .aporte-input    { grid-column: 2; }
+        .aporte-grid .aporte-calc     { grid-column: 2; text-align: right; padding-right: 7px;
                                         font-size: .82rem; font-weight: 600; color: #34d399; }
-        .aporte-fila .aporte-calc.negativo { color: #f87171; }
+        .aporte-grid .aporte-calc.negativo { color: #f87171; }
+        /* El 🏧 va después de APORTE en el DOM (orden del Tab) pero se ve junto a DEBITAR */
+        .aporte-grid .btn-accion      { grid-row: 1; grid-column: 3; }
+        .btn-accion:focus-visible { outline: 2px solid #7b93ff; outline-offset: 2px; }
         .aporte-resultado { font-size: .78rem; text-align: right; }
         .aporte-resultado:empty { display: none; }
         .aporte-input {
@@ -1234,7 +1237,7 @@ header('Content-Type: text/html; charset=utf-8');
                 ?>
                 <td class="mono" style="white-space:nowrap"><?= $cuotaHtml ?></td>
 
-                <!-- Aporte: DEBITAR − DEVOLUCIÓN = APORTE (no exige préstamo; queda en "transferencia") -->
+                <!-- Aporte: DEBITAR − APORTE = DEVOLUCIÓN (no exige préstamo; queda en "transferencia") -->
                 <?php
                     $atmBloqueo = $registrado ? atmMotivoBloqueo([
                         'isActive'       => $r['cl_activo']         ?? false,
@@ -1256,10 +1259,15 @@ header('Content-Type: text/html; charset=utf-8');
                 <?php if (!$registrado): ?>
                     <span style="color:#555c7a">—</span>
                 <?php else: ?>
-                    <div class="aporte-fila">
+                    <div class="aporte-grid">
                         <span class="aporte-etiqueta">DEBITAR : Bs.</span>
                         <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
-                               id="debitar-monto-<?= $uuidJs ?>" oninput="recalcAporte('<?= $uuidJs ?>')"
+                               id="debitar-monto-<?= $uuidJs ?>" oninput="onDebitarInput('<?= $uuidJs ?>')"
+                               <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
+                        <span class="aporte-etiqueta">APORTE : Bs.</span>
+                        <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
+                               id="aporte-monto-<?= $uuidJs ?>"
+                               oninput="this.dataset.editado = '1'; recalcDevolucion('<?= $uuidJs ?>')"
                                <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
                     <?php if ($atmBloqueo !== null): ?>
                         <button class="btn-accion" disabled title="<?= esc($atmBloqueo) ?>">🏧</button>
@@ -1267,17 +1275,8 @@ header('Content-Type: text/html; charset=utf-8');
                         <button class="btn-accion" title="Debitar (Transferencia a Terceros a la cuenta oficina)"
                                 onclick="ejecutarAporte('<?= $uuidJs ?>')">🏧</button>
                     <?php endif; ?>
-                    </div>
-                    <div class="aporte-fila">
                         <span class="aporte-etiqueta">DEVOLUCION : Bs.</span>
-                        <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
-                               id="devolucion-monto-<?= $uuidJs ?>" oninput="recalcAporte('<?= $uuidJs ?>')"
-                               <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
-                        <span></span>
-                    </div>
-                    <div class="aporte-fila">
-                        <span class="aporte-etiqueta">APORTE : Bs.</span>
-                        <span class="aporte-estado aporte-calc mono" id="aporte-calc-<?= $uuidJs ?>">0.00</span>
+                        <span class="aporte-calc mono" id="devolucion-calc-<?= $uuidJs ?>">0.00</span>
                     </div>
                     <div class="aporte-resultado" id="aporte-resultado-<?= $uuidJs ?>"></div>
                 <?php endif; ?>
@@ -3383,7 +3382,7 @@ header('Content-Type: text/html; charset=utf-8');
         }
     }
 
-    // ── ATM: DEBITAR − DEVOLUCIÓN = APORTE (Transferencia a Terceros a cuentaOficina) ──
+    // ── ATM: DEBITAR − APORTE = DEVOLUCIÓN (Transferencia a Terceros a cuentaOficina) ──
     // nroOperacion liga el saldo "después" a la transferencia; el "antes" lo toma debitar.php
     async function consultaSaldoLigada(uuid, nroOperacion) {
         const fd = new FormData();
@@ -3422,14 +3421,22 @@ header('Content-Type: text/html; charset=utf-8');
         return isNaN(v) ? NaN : Math.round(v * 100);
     }
 
-    function recalcAporte(uuid) {
-        const debitarCts    = leerCentavos(document.getElementById(`debitar-monto-${uuid}`));
-        const devolucionCts = leerCentavos(document.getElementById(`devolucion-monto-${uuid}`));
-        const out = document.getElementById(`aporte-calc-${uuid}`);
+    function recalcDevolucion(uuid) {
+        const debitarCts = leerCentavos(document.getElementById(`debitar-monto-${uuid}`));
+        const aporteCts  = leerCentavos(document.getElementById(`aporte-monto-${uuid}`));
+        const out = document.getElementById(`devolucion-calc-${uuid}`);
         if (!out) return;
-        const aporteCts = (isNaN(debitarCts) ? 0 : debitarCts) - (isNaN(devolucionCts) ? 0 : devolucionCts);
-        out.textContent = (aporteCts / 100).toFixed(2);
-        out.classList.toggle('negativo', aporteCts < 0);
+        const devolucionCts = (isNaN(debitarCts) ? 0 : debitarCts) - (isNaN(aporteCts) ? 0 : aporteCts);
+        out.textContent = (devolucionCts / 100).toFixed(2);
+        out.classList.toggle('negativo', devolucionCts < 0);
+    }
+
+    // Mientras el operador no toque APORTE, todo el débito es aporte (DEVOLUCION = 0)
+    function onDebitarInput(uuid) {
+        const debitarInput = document.getElementById(`debitar-monto-${uuid}`);
+        const aporteInput  = document.getElementById(`aporte-monto-${uuid}`);
+        if (aporteInput && !aporteInput.dataset.editado) aporteInput.value = debitarInput.value;
+        recalcDevolucion(uuid);
     }
 
     function aporteResultadoHtml(data) {
@@ -3445,25 +3452,25 @@ header('Content-Type: text/html; charset=utf-8');
         const cell            = document.getElementById(`debitar-cell-${uuid}`);
         const saldoCell       = document.getElementById(`saldo-cell-${uuid}`);
         const debitarInput    = document.getElementById(`debitar-monto-${uuid}`);
-        const devolucionInput = document.getElementById(`devolucion-monto-${uuid}`);
+        const aporteInput     = document.getElementById(`aporte-monto-${uuid}`);
         const resultado       = document.getElementById(`aporte-resultado-${uuid}`);
         const debitarCts      = leerCentavos(debitarInput);
-        const devolucionCts   = leerCentavos(devolucionInput);
+        const aporteCts       = leerCentavos(aporteInput);
 
         if (isNaN(debitarCts) || debitarCts <= 0) {
             alert('El monto a DEBITAR debe ser mayor a cero.');
             debitarInput?.focus();
             return;
         }
-        if (isNaN(devolucionCts) || devolucionCts < 0) {
-            alert('La DEVOLUCION no puede ser negativa.');
-            devolucionInput?.focus();
+        if (isNaN(aporteCts) || aporteCts < 0) {
+            alert('El APORTE no puede ser negativo.');
+            aporteInput?.focus();
             return;
         }
-        const aporteCts = debitarCts - devolucionCts;
-        if (aporteCts < 0) {
-            alert('El APORTE no puede ser negativo: la DEVOLUCION supera el monto a DEBITAR.');
-            devolucionInput?.focus();
+        const devolucionCts = debitarCts - aporteCts;
+        if (devolucionCts < 0) {
+            alert('El APORTE no puede superar el monto a DEBITAR.');
+            aporteInput?.focus();
             return;
         }
         const monto      = debitarCts / 100;
@@ -3505,9 +3512,12 @@ header('Content-Type: text/html; charset=utf-8');
                 throw new Error(data.error ?? 'desconocido');
             }
             transferido = true;
-            if (debitarInput)    debitarInput.value    = '0.00';
-            if (devolucionInput) devolucionInput.value = '0.00';
-            recalcAporte(uuid);
+            if (debitarInput) debitarInput.value = '0.00';
+            if (aporteInput) {
+                aporteInput.value = '0.00';
+                delete aporteInput.dataset.editado;
+            }
+            recalcDevolucion(uuid);
 
             // 3) Saldo DESPUÉS
             fase = 'Consultando saldo (después)';
