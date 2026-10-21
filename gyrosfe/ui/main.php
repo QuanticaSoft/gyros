@@ -1268,11 +1268,13 @@ header('Content-Type: text/html; charset=utf-8');
                         <input type="number" class="aporte-input mono" min="0" step="0.01" value="0.00"
                                id="aporte-monto-<?= $uuidJs ?>"
                                oninput="this.dataset.editado = '1'; recalcDevolucion('<?= $uuidJs ?>')"
+                               onkeydown="tabAporteAlAtm(event, '<?= $uuidJs ?>')"
                                <?= $atmBloqueo !== null ? 'disabled' : '' ?>>
                     <?php if ($atmBloqueo !== null): ?>
                         <button class="btn-accion" disabled title="<?= esc($atmBloqueo) ?>">🏧</button>
                     <?php else: ?>
-                        <button class="btn-accion" title="Debitar (Transferencia a Terceros a la cuenta oficina)"
+                        <button class="btn-accion" id="atm-btn-<?= $uuidJs ?>"
+                                title="Debitar (Transferencia a Terceros a la cuenta oficina)"
                                 onclick="ejecutarAporte('<?= $uuidJs ?>')">🏧</button>
                     <?php endif; ?>
                         <span class="aporte-etiqueta">DEVOLUCION : Bs.</span>
@@ -3437,6 +3439,16 @@ header('Content-Type: text/html; charset=utf-8');
         const aporteInput  = document.getElementById(`aporte-monto-${uuid}`);
         if (aporteInput && !aporteInput.dataset.editado) aporteInput.value = debitarInput.value;
         recalcDevolucion(uuid);
+    }
+
+    // Safari y Firefox en macOS saltan los botones con Tab (salvo "Navegación con teclado"
+    // del sistema): sin esto el foco pasa de APORTE a la fila del siguiente cliente
+    function tabAporteAlAtm(event, uuid) {
+        if (event.key !== 'Tab' || event.shiftKey) return;
+        const btn = document.getElementById(`atm-btn-${uuid}`);
+        if (!btn) return;
+        event.preventDefault();
+        btn.focus();
     }
 
     function aporteResultadoHtml(data) {
