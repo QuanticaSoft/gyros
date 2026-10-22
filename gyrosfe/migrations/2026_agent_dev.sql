@@ -5,7 +5,7 @@
 -- Su túnel inverso usa el puerto remoto 8087. Ejecutado manualmente via psql
 -- (ver 2026_agent_tunnel_port.sql para el porqué).
 --
--- Aplicado: pendiente.
+-- Aplicado: nunca (verificado 2026-10-21: "Agent" solo tiene cbb01 y scz01).
 -- Reemplazada por 2026_agent_dev_baja.sql (el host dev se dio de baja).
 
 -- UP

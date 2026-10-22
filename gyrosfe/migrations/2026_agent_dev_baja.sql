@@ -10,7 +10,10 @@
 -- historial porque es de un host que ya no existe y una FK hacia "Agent"
 -- impediría borrar la fila del agente.
 --
--- Aplicado: pendiente.
+-- Aplicado: no hizo falta. El PREVIO del 2026-10-21 no encontró la fila 'dev'
+-- (2026_agent_dev.sql nunca se aplicó; "Agent" solo tiene cbb01 y scz01). Las
+-- tres FKs hacia "Agent" son ON DELETE CASCADE, así que si alguna vez se crea
+-- basta con el DELETE de "Agent".
 
 -- PREVIO (solo lectura): revisar antes de aplicar
 -- SELECT conrelid::regclass AS tabla, conname, pg_get_constraintdef(oid)
