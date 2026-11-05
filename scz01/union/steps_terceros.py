@@ -25,6 +25,7 @@ from union.steps_transferencia import (
     _esperar_pantalla_estable,
     _scroll_hasta_encontrar,
     _valor_tras_etiqueta,
+    esperar_webview_con_nodos,
 )
 
 MENU_TRANSFERENCIAS_TERCEROS = "Transferencias a Terceros"
@@ -213,6 +214,7 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, monto_esper
     print("[PASO 23] Tocando CONTINUAR...")
     cerrar_teclado(d)
     time.sleep(0.3)
+    esperar_webview_con_nodos(d, paso=23)
     btn_continuar = _scroll_hasta_encontrar(d, d(resourceId="btn-continuar"), max_intentos=6)
     if btn_continuar is None:
         raise RuntimeError("[PASO 23] No se encontro el boton CONTINUAR.")
@@ -249,6 +251,10 @@ def paso23_continuar_y_confirmar(d: u2.Device, cuenta_esperada: str, monto_esper
         )
 
     print("[PASO 23] Datos verificados. Tocando CONFIRMAR...")
+    # Al vencer el contador de la Clave Transaccional la app la renueva con un
+    # "Cargando..." encima, y mientras tanto el WebView no expone sus nodos.
+    # Se espera sin hacer scroll; si no vuelve, se aborta sin haber confirmado.
+    esperar_webview_con_nodos(d, paso=23, timeout=45)
     btn_confirmar = _scroll_hasta_encontrar(
         d, d(resourceId="btn-confirmar"), max_intentos=15, y_inicio=1300, y_fin=700, steps=10, pausa=1.0,
     )
