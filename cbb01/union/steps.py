@@ -45,6 +45,19 @@ def swipe_vertical(d: u2.Device, y_inicio: int, y_fin: int, steps: int = 8) -> N
     d.swipe(x, int(y_inicio * alto / _ALTO_REFERENCIA), x, int(y_fin * alto / _ALTO_REFERENCIA), steps=steps)
 
 
+def cerrar_aviso_cambio_clave(d: u2.Device) -> bool:
+    # El aviso opcional "cambie sus claves cada 90 días" se abre arriba del
+    # formulario y lo empuja hacia abajo: el campo Monto queda fuera de pantalla
+    # y uiautomator2 no lo ve. No confundir con CAMBIO DE CLAVE obligatorio.
+    boton = d(textContains="Recordar Despu")
+    if not boton.exists:
+        return False
+    boton.click()
+    time.sleep(1)
+    print("[AVISO] Aviso de cambio periódico de clave cerrado (Recordar Después).")
+    return True
+
+
 def textos_en_pantalla(d: u2.Device) -> str:
     """Textos visibles (sin campos editables) para que el error diga qué mostró la app."""
     jerarquia = d.dump_hierarchy()
