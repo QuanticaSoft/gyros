@@ -13,7 +13,13 @@ from zoneinfo import ZoneInfo
 
 import uiautomator2 as u2
 
-from union.steps import aceptar_dialogo_permiso, cerrar_teclado, swipe_vertical
+from union.steps import (
+    aceptar_dialogo_permiso,
+    cerrar_aviso_cambio_clave,
+    cerrar_teclado,
+    swipe_vertical,
+    textos_en_pantalla,
+)
 
 MENU_TRANSFERENCIAS_INTERBANCARIAS = "Transferencias Interbancarias"
 MENU_TRANSFERENCIA_ACH = "Transferencia ACH"
@@ -303,8 +309,26 @@ def _esperar_pantalla_estable(d: u2.Device, intentos: int = 6, pausa: float = 0.
         time.sleep(pausa)
 
 
+# Cuando el WebView deja de exponer sus nodos queda como hoja, solo con el
+# titulo de la pagina: la pantalla se ve bien pero uiautomator2 no encuentra
+# ningun campo ni boton (visto en Alcatel 4034T y ZTE Blade A31 Lite).
+_RE_WEBVIEW_SIN_NODOS = re.compile(r'class="android\.webkit\.WebView"[^>]*/>')
+
+
+def esperar_webview_con_nodos(d: u2.Device, paso: int, timeout: float = 20) -> None:
+    limite = time.time() + timeout
+    while _RE_WEBVIEW_SIN_NODOS.search(d.dump_hierarchy()):
+        if time.time() >= limite:
+            raise RuntimeError(
+                f"[PASO {paso}] La app dejo de exponer la pantalla a uiautomator2 (WebView sin nodos) "
+                f"durante {timeout:.0f} s."
+            )
+        time.sleep(1)
+
+
 def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, moneda: str = "BOLIVIANOS") -> None:
     print(f"[PASO 16] Ingresando monto={monto}, moneda={moneda}, glosa='{glosa}'")
+    cerrar_aviso_cambio_clave(d)
 
     # --- Campo Monto a Transferir ---
     # Scrolls incrementales hasta encontrar el label "Monto"
@@ -325,7 +349,7 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
             break
 
     if campo_monto is None:
-        raise RuntimeError("[PASO 16] No se encontro EditText vacio para Monto.")
+        raise RuntimeError(f"[PASO 16] No se encontro EditText vacio para Monto. En pantalla: {textos_en_pantalla(d)}")
 
     # Se escribe con "input text" sobre el campo enfocado, como la glosa: en
     # pantallas chicas, al abrirse el teclado el WebView deja de exponer sus
@@ -338,6 +362,7 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
     cerrar_teclado(d)
     time.sleep(0.5)
     print(f"[PASO 16] Monto '{monto}' ingresado.")
+    esperar_webview_con_nodos(d, paso=16)
 
     # --- Selector Moneda ---
     label_moneda = _scroll_hasta_encontrar(d, d(textContains="Seleccione la Moneda"), max_intentos=4)
@@ -350,6 +375,15 @@ def paso16_ingresar_monto_moneda_glosa(d: u2.Device, monto: str, glosa: str, mon
         opcion_moneda.click()
         time.sleep(0.5)
         print(f"[PASO 16] Moneda '{moneda}' seleccionada.")
+    elif d(text=moneda.upper()).exists:
+        print(f"[PASO 16] Moneda '{moneda}' ya estaba seleccionada.")
+    else:
+        # Sin moneda, el TAB de la glosa deja el foco en otro lado y la glosa se
+        # escribe a ciegas; el formulario incompleto despues no deja continuar.
+        raise RuntimeError(
+            f"[PASO 16] No se encontro el selector de Moneda ni la moneda '{moneda}' elegida. "
+            f"En pantalla: {textos_en_pantalla(d)}"
+        )
 
     # --- Campo Glosa ---
     # Después de Moneda, el foco queda en el spinner. Usamos TAB para pasarlo a Glosa.
